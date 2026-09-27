@@ -509,9 +509,14 @@ describe("homePathAfterLogin (D-S2)", () => {
     expect(homePathAfterLogin()).toBe("/teacher");
   });
 
-  it("redirige a / cuando no hay token o el rol no tiene panel", () => {
+  it("redirige a / cuando no hay token y a /admin con el rol org_admin", () => {
     expect(homePathAfterLogin()).toBe("/");
     localStorage.setItem("aula.access_token", tokenWithRole("org_admin"));
-    expect(homePathAfterLogin()).toBe("/");
+    expect(homePathAfterLogin()).toBe("/admin");
+  });
+
+  it("redirige a /plataforma con el rol super_admin (Fase D SaaS)", () => {
+    localStorage.setItem("aula.access_token", tokenWithRole("super_admin"));
+    expect(homePathAfterLogin()).toBe("/plataforma");
   });
 });

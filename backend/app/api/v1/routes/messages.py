@@ -76,6 +76,9 @@ def _can_message(db: Session, sender: User, recipient: User) -> None:
         raise HTTPException(status_code=400, detail="Cannot message yourself")
     if not recipient.is_active:
         raise HTTPException(status_code=404, detail="Recipient not found")
+    # Fase C: nunca mensajear fuera de la propia organización (404, no 403)
+    if sender.organization_id is not None and (recipient.organization_id != sender.organization_id):
+        raise HTTPException(status_code=404, detail="Recipient not found")
 
     if sender.role is UserRole.org_admin:
         return
@@ -106,7 +109,14 @@ def _can_message(db: Session, sender: User, recipient: User) -> None:
 def _directory_for(db: Session, user: User) -> list[MessageDirectoryEntry]:
     if user.role is UserRole.org_admin:
         rows = db.scalars(
-            select(User).where(User.is_active.is_(True), User.id != user.id).order_by(User.name)
+            select(User)
+            .where(
+                User.is_active.is_(True),
+                User.id != user.id,
+                # Fase C: directorio solo de la propia organización
+                User.organization_id == user.organization_id,
+            )
+            .order_by(User.name)
         ).all()
         return [
             MessageDirectoryEntry(
@@ -121,7 +131,12 @@ def _directory_for(db: Session, user: User) -> list[MessageDirectoryEntry]:
 
     if user.role is UserRole.teacher:
         admins = db.scalars(
-            select(User).where(User.role == UserRole.org_admin, User.is_active.is_(True))
+            select(User).where(
+                User.role == UserRole.org_admin,
+                User.is_active.is_(True),
+                # Fase C: solo admin de la propia organización
+                User.organization_id == user.organization_id,
+            )
         ).all()
         student_ids = list(
             db.scalars(
@@ -165,7 +180,12 @@ def _directory_for(db: Session, user: User) -> list[MessageDirectoryEntry]:
     # student
     my_courses = set(_classmate_course_ids(db, user.id))
     admins = db.scalars(
-        select(User).where(User.role == UserRole.org_admin, User.is_active.is_(True))
+        select(User).where(
+            User.role == UserRole.org_admin,
+            User.is_active.is_(True),
+            # Fase C: solo admin de la propia organización
+            User.organization_id == user.organization_id,
+        )
     ).all()
     teacher_ids = (
         list(
@@ -275,7 +295,12 @@ def unread_count(
             ).all()
             course_ids |= set(rows)
         else:
-            course_ids |= set(db.scalars(select(Course.id)).all())
+            # Fase C: solo cursos de la propia organización
+            course_ids |= set(
+                db.scalars(
+                    select(Course.id).where(Course.organization_id == user.organization_id)
+                ).all()
+            )
 
     courses: dict[str, int] = {}
     if course_ids:
@@ -369,6 +394,9 @@ def thread_with(
     other = db.get(User, user_id)
     if other is None:
         raise HTTPException(status_code=404, detail="User not found")
+    # Fase C: no abrir hilos con usuarios de otra organización
+    if user.organization_id is not None and other.organization_id != user.organization_id:
+        raise HTTPException(status_code=404, detail="User not found")
     rows = db.scalars(
         select(Message)
         .where(
@@ -397,6 +425,9 @@ def send_message(
     if body.course_id is not None:
         course = db.get(Course, body.course_id)
         if course is None:
+            raise HTTPException(status_code=404, detail="Course not found")
+        # Fase C: el curso adjunto debe ser de la propia organización
+        if user.organization_id is not None and course.organization_id != user.organization_id:
             raise HTTPException(status_code=404, detail="Course not found")
     msg = Message(
         sender_id=user.id,

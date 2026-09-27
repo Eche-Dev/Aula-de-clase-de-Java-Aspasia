@@ -24,7 +24,12 @@ router = APIRouter(tags=["calendar"])
 
 def _visible_course_ids(db: Session, user: User) -> list[int]:
     if user.role is UserRole.org_admin:
-        return list(db.scalars(select(Course.id)).all())
+        # Fase C: solo cursos de su organización
+        return list(
+            db.scalars(
+                select(Course.id).where(Course.organization_id == user.organization_id)
+            ).all()
+        )
     if user.role is UserRole.teacher:
         return list(
             db.scalars(

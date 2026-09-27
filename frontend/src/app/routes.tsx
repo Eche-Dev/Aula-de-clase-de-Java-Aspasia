@@ -30,6 +30,15 @@ import { CohortsPage } from "../features/scale/CohortsPage";
 import { RolesPage } from "../features/scale/RolesPage";
 import { SessionsPage } from "../features/scale/SessionsPage";
 import { AdminLayout } from "../features/admin/AdminLayout";
+import { PreciosPage } from "../features/public/PreciosPage";
+import { RegistroEmpresaPage } from "../features/public/RegistroEmpresaPage";
+import { ActivarCuentaPage } from "../features/public/ActivarCuentaPage";
+import { PlatformAccessPage } from "../features/superadmin/PlatformAccessPage";
+import { SuperAdminLayout } from "../features/superadmin/SuperAdminLayout";
+import { PlatformMetricsPage } from "../features/superadmin/PlatformMetricsPage";
+import { OrganizationsPage } from "../features/superadmin/OrganizationsPage";
+import { SubscriptionsPage } from "../features/superadmin/SubscriptionsPage";
+import { MfaSettingsPage } from "../features/superadmin/MfaSettingsPage";
 import { TeacherLayout } from "../features/teacher/TeacherLayout";
 import { StudentLayout } from "../features/student/StudentLayout";
 import { StudentDashboardPage } from "../features/student/dashboard/StudentDashboardPage";
@@ -83,6 +92,12 @@ function RequireStaff({ children }: { children: ReactNode }) {
   return children;
 }
 
+function RequireSuperAdmin({ children }: { children: ReactNode }) {
+  const { user } = useAuth();
+  if (user && user.role !== "super_admin") return <Navigate to="/" replace />;
+  return children;
+}
+
 function RequirePermission({ permission, children }: { permission: string; children: ReactNode }) {
   const { user } = useAuth();
   const permissions = usePermissions();
@@ -99,6 +114,10 @@ export function AppRoutes() {
       <Route element={<AppLayout />}>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/change-credentials" element={<ChangeCredentialsPage />} />
+        <Route path="/precios" element={<PreciosPage />} />
+        <Route path="/registro-empresa" element={<RegistroEmpresaPage />} />
+        <Route path="/activar-cuenta/:token" element={<ActivarCuentaPage />} />
+        <Route path="/plataforma/acceso" element={<PlatformAccessPage />} />
         <Route
           path="/"
           element={
@@ -295,6 +314,21 @@ export function AppRoutes() {
         >
           <Route index element={<StudentDashboardPage />} />
           <Route path="courses/:courseId" element={<MyProgressPage />} />
+        </Route>
+        <Route
+          path="/plataforma"
+          element={
+            <RequireAuth>
+              <RequireSuperAdmin>
+                <SuperAdminLayout />
+              </RequireSuperAdmin>
+            </RequireAuth>
+          }
+        >
+          <Route index element={<PlatformMetricsPage />} />
+          <Route path="organizaciones" element={<OrganizationsPage />} />
+          <Route path="suscripciones" element={<SubscriptionsPage />} />
+          <Route path="2fa" element={<MfaSettingsPage />} />
         </Route>
         <Route path="*" element={<NotFoundPage />} />
       </Route>

@@ -13,7 +13,8 @@ Documento de arquitectura y decisiones. Se actualiza ante cada decisión ambigua
 (planes por módulo) ·
 [TRABAJO_REALIZADO_EN_ADMIN.md](../PLANES_APLICADO_CON_EXITO/TRABAJO_REALIZADO_EN_ADMIN.md),
 [TRABAJO_REALIZADO_EN_PROFESOR.md](../PLANES_APLICADO_CON_EXITO/TRABAJO_REALIZADO_EN_PROFESOR.md),
-[TRABAJO_REALIZADO_EN_ALUMNO.md](../PLANES_APLICADO_CON_EXITO/TRABAJO_REALIZADO_EN_ALUMNO.md)
+[TRABAJO_REALIZADO_EN_ALUMNO.md](../PLANES_APLICADO_CON_EXITO/TRABAJO_REALIZADO_EN_ALUMNO.md),
+[TRABAJO_REALIZADO_EN_SUPER_ADMIN.md](../PLANES_APLICADO_CON_EXITO/TRABAJO_REALIZADO_EN_SUPER_ADMIN.md)
 (informes de entrega) · [CHANGELOG.md](../../CHANGELOG.md) ·
 [Índice de docs](../Explicacion_de_Cada_ARCHIVO.md).
 
@@ -699,11 +700,13 @@ de aislamiento cruzado y su propia prueba de mutación.
 
 ## 13. Fase C (aislamiento multi-tenant de todas las rutas + `/superadmin/*`) — PLAN
 
-**Estado: PLAN, sin implementar.** Origen: secciones 6 (invariantes), 7 (rutas),
+**Estado: IMPLEMENTADA (2026-09-28).** Evidencia de gates y mutaciones al
+final de la sección (13.4 y 13.6). Resumen ejecutivo en
+[TRABAJO_REALIZADO_EN_SUPER_ADMIN.md](../PLANES_APLICADO_CON_EXITO/TRABAJO_REALIZADO_EN_SUPER_ADMIN.md).
+Origen: secciones 6 (invariantes), 7 (rutas),
 8 (tests) y 9 (definición de Fase C) de
 [Super-admin-prompt.md](../1-REVISION_DE_CODIGO_CLAUDE/Super-admin-prompt.md) +
-condición no negociable de 11.5. **No se escribe código hasta que este plan se
-confirme.** Frontend y 2FA TOTP de super_admin → Fase D.
+condición no negociable de 11.5. Frontend y 2FA TOTP de super_admin → Fase D.
 
 ### 13.1 Alcance
 
@@ -913,26 +916,193 @@ orgs creadas directamente en `db` (barato):
 14. `test_super_admin_role_boundaries` — org_admin → 403 en todos los
     `/superadmin/*` (parametrizado); super_admin → 403 en `/admin/*`.
 
-- **Prueba de mutación (2 sabotajes, evidencia pegada aquí al implementar)**:
+- **Prueba de mutación (2 sabotajes, evidencia pegada)**:
   a) quitar el `where(User.organization_id == …)` de `GET /admin/users` →
-  el test 2 **debe fallar**; b) quitar el `_ensure_course_org` de
-  `require_staff_of_course` → los tests 6/11 **deben fallar**. Si al sabotear
-  no falla ningún test, el test está mal escrito.
-- Riesgo conocido: los **149 tests existentes** deben seguir en verde (los
-  listados globales que asumían "un solo centro" pasan a estar filtrados por
-  la org por defecto, que es la única que usan).
+  el test 2 **debe fallar** → **EJECUTADA: `2 failed, 12 passed`**
+  (`test_org_admin_users_list_scoped_to_own_org` +
+  `test_cross_org_isolation_via_real_registration_flow`) → revertida.
+  b) sabotear `_ensure_course_org` → **EJECUTADA: `2 failed, 12 passed`**
+  (`test_org_admin_cannot_touch_other_org_courses` con
+  `assert 200 == 404` en línea 478 + `test_cross_org_isolation_via_real_registration_flow`)
+  → revertida. **Desviación respecto al plan**: se previó sabotear solo el
+  `_ensure_course_org` de `require_staff_of_course`, pero al ejecutar la
+  mutación **no falló ningún test** (`14 passed`): el check está
+  enmascarado porque `CurrentCourse` (`get_course_or_404`) y
+  `require_enrolled` repiten el mismo guard (refuerzo en 3 sitios). La
+  mutación se reorientó al **choque compartido `_ensure_course_org`**, que
+  sí es load-bearing. El test 11 no cae con (b) porque sus guards son
+  `can_read_submission`/`_assert_course_member` (codepaths distintos de
+  `_ensure_course_org`), y esos guards ya demuestran su 404 en el propio
+  test 11.
+- Riesgo conocido: los **149 tests existentes** debían seguir en verde →
+  **cumplido** (solo hubo que actualizar `MIGRATION_HEAD` en
+  `test_saas_phase_a.py`, que fija el head de alembic por constante).
 
 ### 13.5 Entorno local
 
 - Sin cambios de entorno: solo aplicar la migración en local con
   `ALEMBIC_DATABASE_URL="sqlite:///./dev.db" alembic upgrade head`.
 
-### 13.6 Gates para cerrar la Fase C
+### 13.6 Gates para cerrar la Fase C — ✅ TODOS EN VERDE (2026-09-28)
 
-- `ruff check .` + `ruff format --check .` + `mypy app` en verde.
-- `pytest --cov=app --cov-fail-under=80` (esperados ≈165 tests; mantener ≥80 %).
-- Migración aplicada a `dev.db` (`alembic current` → la revisión nueva).
-- Frontend sin cambios: `npm run lint` + `npm run test` en verde.
-- **Las 2 mutaciones en rojo y revertidas** con la evidencia pegada en 13.4.
-- Entrada nueva en `CHANGELOG.md`; este PLAN mostrado → **parar** antes de la
-  Fase D.
+- ✅ `ruff check .` → `All checks passed!`; `ruff format --check .` →
+  `100 files already formatted`; `mypy app` → `Success: no issues found
+  in 74 source files`.
+- ✅ `pytest --cov=app --cov-fail-under=80` → **163 passed · 86.75 %**
+  (149 existentes + 14 nuevos de `tests/test_saas_phase_c.py`).
+- ✅ Migración aplicada a `dev.db`: `alembic current` →
+  `c7d8e9f0a1b2 (head)`; roundtrip `upgrade → downgrade → upgrade`
+  verificado (uniqueness indexes + PK compuesta correctos).
+- ✅ Frontend sin cambios: `npm run lint` en verde + `npm run test` →
+  **66 passed**.
+- ✅ Las 2 mutaciones en rojo y revertidas con la evidencia en 13.4.
+- ✅ Entrada nueva en `CHANGELOG.md` (`## [Fase C SaaS] — 2026-09-28`).
+- ✅ Este PLAN mostrado → **parar antes de la Fase D**.
+
+---
+
+## 14. Fase D (frontend por rol + registro/activación + 2FA de super_admin) — IMPLEMENTADA
+
+**Estado: IMPLEMENTADA (2026-09-28).** Evidencia de gates y mutación al
+final de la sección (14.4 y 14.6). Origen: sección 9 (definición de
+Fase D) y 7 (rutas) de
+[Super-admin-prompt.md](../1-REVISION_DE_CODIGO_CLAUDE/Super-admin-prompt.md).
+Asumida con el "aplica la fase D" del usuario. Resumen ejecutivo en
+[TRABAJO_REALIZADO_EN_SUPER_ADMIN.md](../PLANES_APLICADO_CON_EXITO/TRABAJO_REALIZADO_EN_SUPER_ADMIN.md).
+
+### 14.1 Alcance — qué hace esta fase
+
+Backend (lo mínimo que falta; el flujo público/activación ya existe de la
+Fase B):
+
+1. **TOTP (RFC 6238) sin dependencias nuevas**: `app/services/totp.py` con
+   `secrets`/`hmac`/`hashlib`/`base64` de stdlib →
+   `generate_secret()` (20 bytes → base32), `totp_code(secret, at)`,
+   `verify_totp(secret, code, window=±1)` y `otpauth_url(...)`. Se comprueba
+   con los **vectores oficiales del RFC 6238** (SHA-1, T=59 → `94287082`,
+   T=1111111109 → `07081804`, …).
+2. **Modelo + migración `d8e9f0a1b2c3`**: columnas en `users`
+   `mfa_secret` (String(64) nullable) y `mfa_enabled` (Boolean NOT NULL
+   default false). Sin secretos en Settings (el secreto TOTP es del
+   usuario, no de despliegue).
+3. **Login de `super_admin` exige siempre 2FA** (spec §7: "super_admin
+   requiere 2FA por TOTP… solo para este rol en esta fase"):
+   - `POST /auth/login/staff` con credenciales válidas de un
+     `super_admin` → **NO emite tokens**: devuelve
+     `StaffLoginResponse{access_token:"", mfa_required:true, mfa_token(JWT
+     type=mfa, exp 5 min), mfa_enrolled}`. El resto de roles mantiene
+     `TokenResponse` exactamente igual (regresión cubierta por tests
+     existentes).
+   - `POST /auth/mfa/setup` `{mfa_token}` → genera y guarda el secreto
+     pendiente (`mfa_enabled=false`), devuelve `secret` + `otpauth_url`
+     (el usuario lo introduce a mano en su app; **sin QR** — se evita una
+     dependencia nueva). 409 si ya está activo.
+   - `POST /auth/mfa/verify` `{mfa_token, code}` → valida TOTP con
+     ventana ±1; si estaba pendiente lo **activa**; emite los tokens
+     reales (cookie refresh incluida) → `TokenResponse`. Si ya estaba
+     activo, solo verifica. Código malo → 401 + `record_failed_login`
+     (`reason=mfa_failed`) → **lockout a los 5 intentos → 429**
+     (reutiliza `_is_locked`/`MAX_FAILED_ATTEMPTS`); token inválido/
+     caducado/otro propósito → 401 sin efectos.
+   - `POST /auth/mfa/disable` `{code}` (sesión `super_admin`) → 204,
+     borra secreto + flag; auditoría `auth.mfa_disabled`.
+   - `GET /auth/me` (`UserPublic`) expone `mfa_enabled` para que el
+     panel sepa el estado sin endpoint extra.
+   - **Recuperación**: si se pierde el dispositivo, un CLI/rollback de BD
+     es la vía (documentado; fuera de alcance generar códigos de
+     respaldo).
+4. `login_staff` con MFA pendiente/activo **no** registra
+   `auth.login_success` hasta completar el verify (audita
+   `auth.mfa_challenge` en su lugar).
+
+Frontend (rutas de spec §7):
+
+| Ruta | Qué es | Detalle |
+|---|---|---|
+| `/precios` | pública | `GET /public/plans` → 3 tarjetas (nombre, precio, descripción, máx. cursos) + CTA "Registra tu empresa" → `/registro-empresa?plan=<id>` |
+| `/registro-empresa` | pública | form (nombre, NIF/CIF, email, plan) → `POST /public/organizations` → `redirectToCheckout(checkout_url)` (helper en `lib/checkout.ts`, testeable con spy). Errores 409/502/503 traducidos |
+| `/activar-cuenta/:token` | pública | `GET /auth/activate?token=` → muestra el email + form contraseña (confirmación) → `POST /auth/activate` → éxito con enlace a `/login`; token inválido → 400 explicado |
+| `/plataforma/acceso` | no enlazada públicamente | login `super_admin`: email+contraseña → `mfa_required` → **setup** (muestra secreto + otpauth, input de código) o **verify** según `mfa_enrolled` → `setSession` → `/plataforma` |
+| `/login` (staff) | existente | si la respuesta trae `mfa_required` → navega a `/plataforma/acceso` con `state={mfa_token,mfa_enrolled}` (una sola UI de MFA) |
+| `/plataforma` | panel | `RequireSuperAdmin` + `SuperAdminLayout`: índice de métricas (`/superadmin/metrics`), organizaciones (tabla + filtros `status`/`q` + crear/editar/borrar con confirm), suscripciones, y 2FA (estado + disable) |
+
+- **Redirección por rol** (`homePath.ts`): `super_admin → /plataforma`,
+  `org_admin → /admin` (antes `/`), `teacher → /teacher`,
+  `student → /student`.
+- **Guards** en `routes.tsx`: `RequireSuperAdmin` (rol distinto → `/`);
+  el resto de guards existentes sin cambios.
+- **Nav** (`layout.tsx`): sin sesión → enlace "Precios"; `super_admin`
+  autenticado → solo "Plataforma" + "Mi cuenta" + "Salir" (oculta
+  Cursos/Calendario/Mensajes/Privacidad, que para él son enlaces rotos);
+  el resto de roles sin cambios.
+
+### 14.2 Fuera de alcance de la Fase D
+
+- QR de otpauth (se muestra el secret copiable), 2FA para otros roles,
+  códigos de recuperación, emails nuevos, Stripe real en dev.
+- Cambios de API de Fases A–C salvo los descritos arriba.
+
+### 14.3 Modelo de datos y migración
+
+- `users.mfa_secret` (String(64) nullable) + `users.mfa_enabled`
+  (Boolean NOT NULL, `server_default` false) → migración `d8e9f0a1b2c3`
+  (revisión `c7d8e9f0a1b2`), downgrade `drop_column` ×2. En SQLite se
+  añaden columnas planas (sin FK), no hace falta `batch_alter_table`.
+- Los tests usan `create_all` → defaults en el modelo.
+
+### 14.4 Tests de la fase (`backend/tests/test_saas_phase_d.py`)
+
+1. Vectores RFC 6238 + drift ±1 ventana (fuera de ventana → false).
+2. `login_staff` de `super_admin` → `mfa_required=true` + `mfa_token`,
+   **sin** access_token usable; `org_admin`/`teacher` → `TokenResponse`
+   normal (regresión).
+3. Flujo completo: setup → verify con código correcto → tokens →
+   `GET /auth/me` funciona y `mfa_enabled=true`; segundo login → ya sin
+   `setup`.
+4. Verify con código inválido → 401 y **sin** token; 5 fallos → 429
+   (lockout); `mfa_token` basura/caducado/`type != mfa` → 401.
+5. Fronteras: `setup` con `mfa_token` de un `org_admin` → 401; endpoints
+   de sesión `mfa/*` con rol distinto de `super_admin` → 403; `disable`
+   con código correcto → 204 y el siguiente login exige setup otra vez.
+6. Login de `super_admin` **sin** 2FA configurado nunca entrega tokens
+   hasta completar verify (imposible saltarse el segundo factor).
+
+- **Prueba de mutación**: sabotear `login_staff` para que no imponga el
+  challenge (`mfa_required` siempre false) → el test 2 debe fallar.
+  **Ejecutada (2026-09-28)**: `if False and user.role is UserRole.super_admin`
+  en `auth_service.py` → `pytest tests/test_saas_phase_d.py` →
+  **`4 failed, 10 passed`** (challenge, flujo completo, lockout y
+  setup/verify/disable de sesión; los vectores TOTP y las fronteras de rol
+  siguen en verde, como corresponde). Revertida → **`14 passed`**.
+
+### 14.5 Tests frontend (Vitest)
+
+- `PreciosPage`: renderiza los 3 planes y el CTA con el plan preseleccionado.
+- `RegistroEmpresaPage`: envía el POST correcto y llama a
+  `redirectToCheckout`; error 409 traducido.
+- `ActivarCuentaPage`: token inválido → error; éxito → confirmación.
+- `PlatformAccessPage`: password → `mfa_required` → setup con código →
+  `setSession` + navegación a `/plataforma`.
+- `SuperAdmin.test.tsx`: métricas + organizaciones (mock fetch) y
+  redirección de `/plataforma` con rol no super_admin.
+- `routes.test.tsx` ampliado: `/precios` pública, `/activar-cuenta/:token`
+  y `/plataforma/acceso` sin sesión.
+
+### 14.6 Gates para cerrar la Fase D
+
+- [x] Backend: `ruff check` + `ruff format --check` + `mypy app` en verde
+  (102 ficheros, 75 módulos); `pytest --cov=app --cov-fail-under=80` →
+  **177 passed · 87.11 %** (163 existentes + 14 nuevos de
+  `tests/test_saas_phase_d.py`; `app/services/totp.py` al 100 %).
+- [x] Migración `alembic upgrade head` en `dev.db` +
+  roundtrip `downgrade -1 → upgrade head` → `d8e9f0a1b2c3 (head)`.
+- [x] Frontend: `npm run lint` + `npm run format:check` + `npm run typecheck`
+  + `npm run test` en verde (66 existentes → **85 tests**; los 18 nuevos
+  cubren §14.5 y los flujos de 2FA).
+- [x] Mutación de 14.4 en rojo con evidencia y revertida (4 failed → 14
+  passed).
+- [x] Entrada nueva en `CHANGELOG.md` (`## [Fase D SaaS]`) y actualización de
+  [TRABAJO_REALIZADO_EN_SUPER_ADMIN.md](../PLANES_APLICADO_CON_EXITO/TRABAJO_REALIZADO_EN_SUPER_ADMIN.md).
+
+**Siguiente**: no queda Fase definida en `Super-admin-prompt.md`; pendientes
+heredados en el informe (WebSocket, emails solo de activación, QR de 2FA).

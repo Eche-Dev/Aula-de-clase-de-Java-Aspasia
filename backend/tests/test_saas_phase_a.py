@@ -32,7 +32,7 @@ from tests.api_helpers import (
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 # Cabecera actual de Alembic: la Fase B añadió su migración encima de la de la Fase A
-MIGRATION_HEAD = "f4e5d6c7b8a9"
+MIGRATION_HEAD = "d8e9f0a1b2c3"
 LEGACY_REVISION = "d9a4b5c6e7f8"
 
 

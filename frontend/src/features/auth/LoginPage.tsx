@@ -27,7 +27,15 @@ export function LoginPage() {
       if (mode === "student") {
         await loginStudent({ course_code: courseCode.trim(), identifier: identifier.trim(), pin });
       } else {
-        await loginStaff({ email: email.trim(), password });
+        const tokens = await loginStaff({ email: email.trim(), password });
+        if (tokens.mfa_required) {
+          // super_admin (Fase D): el2FA se resuelve en su pantalla de acceso
+          navigate("/plataforma/acceso", {
+            replace: true,
+            state: { mfa_token: tokens.mfa_token, mfa_enrolled: tokens.mfa_enrolled },
+          });
+          return;
+        }
       }
       navigate(homePathAfterLogin(), { replace: true });
     } catch (err) {

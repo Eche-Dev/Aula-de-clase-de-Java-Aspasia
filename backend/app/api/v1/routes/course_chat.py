@@ -22,7 +22,7 @@ from app.schemas.course_message import (
     CourseMessageCreate,
     CourseMessagePublic,
 )
-from app.security.policies import CurrentUser, DbSession
+from app.security.policies import CurrentUser, DbSession, ensure_same_org
 from app.services.audit import log_action
 
 router = APIRouter(tags=["course-chat"])
@@ -30,6 +30,7 @@ router = APIRouter(tags=["course-chat"])
 
 def _assert_course_member(db: Session, user: User, course: Course) -> None:
     """404 si el usuario no es miembro (multi-tenant sin filtrar existencia)."""
+    ensure_same_org(user, course.organization_id, detail="Course not found")
     if user.role is UserRole.org_admin:
         return
     if user.role is UserRole.teacher:

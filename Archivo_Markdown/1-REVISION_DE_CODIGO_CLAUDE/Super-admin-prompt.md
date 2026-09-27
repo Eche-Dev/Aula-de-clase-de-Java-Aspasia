@@ -2,7 +2,7 @@
 
 Aquí tienes el prompt completo para OpenCode, con la falla del webhook (y las demás que hemos ido viendo en este diseño) puestas como requisitos explícitos, no como notas al margen.
 
-**Documentación relacionada**: análisis previo [PLAN_SUPER_ADMIN.md](../PLAN/PLAN_SUPER_ADMIN.md) · arquitectura actual [PLAN_CLAUDE.md](../PLAN/PLAN_CLAUDE.md) · [Índice de docs](../Explicacion_de_Cada_ARCHIVO.md) · [CHANGELOG.md](../../CHANGELOG.md).
+**Documentación relacionada**: análisis previo [PLAN_SUPER_ADMIN.md](../PLAN/PLAN_SUPER_ADMIN.md) · arquitectura actual [PLAN_CLAUDE.md](../PLAN/PLAN_CLAUDE.md) · entregas [TRABAJO_REALIZADO_EN_SUPER_ADMIN.md](../PLANES_APLICADO_CON_EXITO/TRABAJO_REALIZADO_EN_SUPER_ADMIN.md) · [Índice de docs](../Explicacion_de_Cada_ARCHIVO.md) · [CHANGELOG.md](../../CHANGELOG.md).
 
 ---
 

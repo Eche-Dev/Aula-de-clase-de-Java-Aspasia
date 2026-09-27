@@ -120,6 +120,83 @@ export type TokenPayload = {
   access_token: string;
   token_type: string;
   must_change_credentials: boolean;
+  /** Reto 2FA de super_admin (Fase D): no hay sesión hasta verificar. */
+  mfa_required?: boolean;
+  mfa_token?: string | null;
+  mfa_enrolled?: boolean;
+};
+
+export type MfaSetupResponse = {
+  secret: string;
+  otpauth_url: string;
+  mfa_enabled: boolean;
+};
+
+export type MfaVerifyResponse = {
+  mfa_enabled: boolean;
+  access_token: string | null;
+  token_type: string;
+  must_change_credentials: boolean | null;
+};
+
+export type PlanPublic = {
+  id: string;
+  name: string;
+  description: string;
+  price_eur: number;
+  max_courses: number | null;
+  currency: string;
+  interval: string;
+};
+
+export type OrganizationRegisterResponse = {
+  organization_id: number;
+  checkout_url: string;
+};
+
+export type ActivationInfo = {
+  email: string;
+  expires_at: string | null;
+};
+
+export type ActivationDone = {
+  status: string;
+  email: string;
+};
+
+export type OrgStatus = "pending_payment" | "trialing" | "active" | "past_due" | "canceled";
+
+export type OrganizationAdminPublic = {
+  id: number;
+  name: string;
+  tax_id: string;
+  billing_email: string;
+  status: OrgStatus;
+  plan_id: string;
+  stripe_customer_id: string | null;
+  stripe_subscription_id: string | null;
+  trial_ends_at: string | null;
+  created_at: string;
+  user_count: number;
+  course_count: number;
+};
+
+export type SubscriptionRow = {
+  organization_id: number;
+  organization_name: string;
+  stripe_customer_id: string | null;
+  stripe_subscription_id: string | null;
+  status: OrgStatus;
+  plan_id: string;
+  trial_ends_at: string | null;
+};
+
+export type PlatformMetrics = {
+  orgs_by_status: Record<string, number>;
+  orgs_by_plan: Record<string, number>;
+  users_by_role: Record<string, number>;
+  total_courses: number;
+  trials_ending_soon: number;
 };
 
 export type CoursePublic = {
@@ -248,6 +325,7 @@ export type UserPublic = {
   role: "super_admin" | "org_admin" | "teacher" | "student";
   is_active: boolean;
   must_change_credentials: boolean;
+  mfa_enabled: boolean;
   created_at: string;
 };
 

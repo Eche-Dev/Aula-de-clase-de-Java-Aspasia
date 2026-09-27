@@ -30,6 +30,7 @@ __all__ = [
     "CurrentCourse",
     "CurrentUser",
     "DbSession",
+    "OptionalSessionUser",
     "current_user_from_token",
     "ensure_same_org",
     "get_bearer_token",
@@ -95,6 +96,23 @@ def CurrentUserWithPendingChange(
 ) -> User:
     """Como CurrentUser pero permite `must_change_credentials` (para el endpoint)."""
     return current_user_from_token(db, token, require_change_ok=False)
+
+
+def OptionalSessionUser(request: Request, db: DbSession) -> User | None:
+    """Usuario si hay Bearer válido; None si no hay cabecera o no decodifica.
+
+    Para endpoints que aceptan **o** token de sesión **o** un token de flujo
+    (p. ej. el `mfa_token` del 2FA); quien resuelve decide qué vía usar.
+    """
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        return None
+    try:
+        return current_user_from_token(
+            db, auth.removeprefix("Bearer ").strip(), require_change_ok=False
+        )
+    except HTTPException:
+        return None
 
 
 def require_admin(user: Annotated[User, Depends(CurrentUser)]) -> User:
@@ -225,12 +243,12 @@ def require_enrolled(
 def can_read_submission(db: Session, user: User, submission: Submission) -> bool:
     """Matriz: dueño, staff del curso, o peer con visibility=class (sin evals)."""
     if user.role is UserRole.org_admin:
-        # Solo entregas de cursos de SU organización (Fase C: 404/False nunca 403)
+        # Solo entregas de cursos de SU organización (Fase C); los callers
+        # convierten False en 404, así que nunca se filtra existencia ajena.
         course = db.get(Course, submission.course_id)
-        if course is None:
+        if course is None or user.organization_id is None:
             return False
-        ensure_same_org(user, course.organization_id, detail="Submission not found")
-        return True
+        return course.organization_id == user.organization_id
     if submission.student_id == user.id:
         return True
     if user.role is UserRole.teacher:

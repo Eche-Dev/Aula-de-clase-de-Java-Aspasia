@@ -48,6 +48,7 @@ from app.schemas.teacher import (
 from app.security.policies import (
     CurrentUser,
     DbSession,
+    ensure_same_org,
     require_admin,
     require_enrolled,
     require_staff_of_course,
@@ -86,7 +87,10 @@ def list_courses(
     user: Annotated[User, Depends(CurrentUser)],
 ) -> list[CoursePublic]:
     if user.role is UserRole.org_admin:
-        rows = db.scalars(select(Course).order_by(Course.id)).all()
+        # Fase C: el admin solo ve cursos de SU organización
+        rows = db.scalars(
+            select(Course).where(Course.organization_id == user.organization_id).order_by(Course.id)
+        ).all()
         return [CoursePublic.model_validate(c) for c in rows]
     if user.role is UserRole.teacher:
         rows = db.scalars(
@@ -116,7 +120,13 @@ def create_course(
     request: Request,
 ) -> CoursePublic:
     code = body.code.strip().upper()
-    if db.scalar(select(Course).where(Course.code == code)):
+    # Fase C: el código es único dentro de la organización (no entre orgs)
+    if db.scalar(
+        select(Course).where(
+            Course.code == code,
+            Course.organization_id == _admin.organization_id,
+        )
+    ):
         raise HTTPException(status_code=409, detail="Course code already exists")
     course = Course(
         name=body.name,
@@ -169,6 +179,7 @@ def update_course(
     _admin: Annotated[User, Depends(require_admin)],
 ) -> CoursePublic:
     course = _get_course(db, course_id)
+    ensure_same_org(_admin, course.organization_id, detail="Course not found")
     data = body.model_dump(exclude_unset=True)
     layout_changed = False
     for key, value in data.items():
@@ -290,6 +301,8 @@ def create_enrollment(
         )
     if student is None or student.role is not UserRole.student:
         raise HTTPException(status_code=404, detail="Student not found")
+    # Fase C: no matricular alumnos de otra organización (404, no 403)
+    ensure_same_org(_admin, student.organization_id, detail="Student not found")
 
     existing = db.scalar(
         select(Enrollment).where(
@@ -338,6 +351,7 @@ def move_seat(
     _admin: Annotated[User, Depends(require_admin)],
 ) -> EnrollmentPublic:
     course = _get_course(db, course_id)
+    ensure_same_org(_admin, course.organization_id, detail="Course not found")
     enrollment = db.get(Enrollment, enrollment_id)
     if enrollment is None or enrollment.course_id != course.id:
         raise HTTPException(status_code=404, detail="Enrollment not found")
@@ -371,6 +385,8 @@ def my_enrollment(
     user: Annotated[User, Depends(CurrentUser)],
 ) -> EnrollmentPublic:
     course = _get_course(db, course_id)
+    # Fase C: no revelar cursos ajenos (404 aunque no exista matrícula)
+    ensure_same_org(user, course.organization_id, detail="Course not found")
     enrollment = db.scalar(
         select(Enrollment).where(
             Enrollment.course_id == course.id,
@@ -392,6 +408,7 @@ def remove_enrollment(
     _admin: Annotated[User, Depends(require_admin)],
 ) -> None:
     course = _get_course(db, course_id)
+    ensure_same_org(_admin, course.organization_id, detail="Course not found")
     enrollment = db.get(Enrollment, enrollment_id)
     if enrollment is None or enrollment.course_id != course.id:
         raise HTTPException(status_code=404, detail="Enrollment not found")
@@ -407,9 +424,12 @@ def assign_teacher(
     _admin: Annotated[User, Depends(require_admin)],
 ) -> None:
     course = _get_course(db, course_id)
+    ensure_same_org(_admin, course.organization_id, detail="Course not found")
     teacher = db.get(User, teacher_id)
     if teacher is None or teacher.role is not UserRole.teacher:
         raise HTTPException(status_code=404, detail="Teacher not found")
+    # Fase C: no asignar profesores de otra organización
+    ensure_same_org(_admin, teacher.organization_id, detail="Teacher not found")
     if not db.scalar(
         select(CourseTeacher).where(
             CourseTeacher.course_id == course.id,
@@ -428,6 +448,7 @@ def unassign_teacher(
     _admin: Annotated[User, Depends(require_admin)],
 ) -> None:
     course = _get_course(db, course_id)
+    ensure_same_org(_admin, course.organization_id, detail="Course not found")
     link = db.scalar(
         select(CourseTeacher).where(
             CourseTeacher.course_id == course.id,

@@ -20,6 +20,7 @@ from app.api.v1.routes import (
     rubrics,
     sections,
     student,
+    superadmin,
     teacher,
     webhooks,
     work,
@@ -46,5 +47,6 @@ api_router.include_router(messages.router)
 api_router.include_router(course_chat.router)
 api_router.include_router(student.router)
 api_router.include_router(teacher.router)
+api_router.include_router(superadmin.router)
 
 __all__ = ["api_router"]

@@ -52,13 +52,19 @@ El informe de entregas del módulo alumno (fases S0–S4 completadas). Tabla de 
 
 - **Plan**: [PLAN_ALUMNO.md](PLAN/PLAN_ALUMNO.md) · **Bitácora**: [CHANGELOG.md](../CHANGELOG.md) · **Hermano**: [TRABAJO_REALIZADO_EN_PROFESOR.md](PLANES_APLICADO_CON_EXITO/TRABAJO_REALIZADO_EN_PROFESOR.md).
 
-## 9. [COMANDOS_DE_LA_APP.md](COMANDOS/COMANDOS_DE_LA_APP.md) · `COMANDOS/`
+## 9. [TRABAJO_REALIZADO_EN_SUPER_ADMIN.md](PLANES_APLICADO_CON_EXITO/TRABAJO_REALIZADO_EN_SUPER_ADMIN.md) · `PLANES_APLICADO_CON_EXITO/`
+
+El informe de entregas del módulo SaaS multi-tenant (fases A–D completadas). Tabla de commits (`05b3d28` A → `814541f` B, C y D sin commit), la cadena de verificación por cierre (133 → 149 → 163 → **177 tests backend, 87.11 %**; 66 → **85 tests frontend**) y, como cuerpo más reciente, la Fase D: el 2FA TOTP de `super_admin` (reto de login sin tokens, endpoints `/auth/mfa/*`, migración `d8e9f0a1b2c3`, 14 tests + prueba de mutación) y el frontend por rol (`/precios`, `/registro-empresa`, `/activar-cuenta/:token`, panel `/plataforma` con su guard); antes, la Fase C (invariante 404-nunca-403, choke points de `policies.py`, scoping de las 65 rutas, rutas `/superadmin/*`, 14 tests con 2 mutaciones). Transmite: qué hay entregado hoy en el SaaS (la totalidad de `Super-admin-prompt.md`) y qué queda como deuda heredada (QR de 2FA, WebSocket, emails).
+
+- **Prompt**: [Super-admin-prompt.md](1-REVISION_DE_CODIGO_CLAUDE/Super-admin-prompt.md) · **Plan**: [PLAN_CLAUDE.md](PLAN/PLAN_CLAUDE.md) §11–13 · **Bitácora**: [CHANGELOG.md](../CHANGELOG.md) · **Hermano**: [TRABAJO_REALIZADO_EN_ADMIN.md](PLANES_APLICADO_CON_EXITO/TRABAJO_REALIZADO_EN_ADMIN.md).
+
+## 10. [COMANDOS_DE_LA_APP.md](COMANDOS/COMANDOS_DE_LA_APP.md) · `COMANDOS/`
 
 La guía operativa (manual de uso). Solo comandos: requisitos, variables de entorno, arranque con Docker (opción A) o local sin Docker (opción B), primer admin y seed, migraciones, tests/lint, Makefile, puertos/URLs, credenciales de los flujos de acceso y solución de problemas. Transmite: cómo instalar, arrancar y mantener la app en el día a día — pensada para quien la ejecuta, no para quien la diseña.
 
 - **Arranque express**: [run_comando.md](COMANDOS/run_comando.md) · **Presentación**: [README.md](../README.md).
 
-## 10. [run_comando.md](COMANDOS/run_comando.md) · `COMANDOS/`
+## 11. [run_comando.md](COMANDOS/run_comando.md) · `COMANDOS/`
 
 La chuleta rápida de arranque. El mínimo para tener la app corriendo en local con SQLite ya configurado: 2 terminales (Terminal 1 `uvicorn app.main:app --reload` con `DEBUG=true`; Terminal 2 `npm run dev`), la nota de `Set-ExecutionPolicy` si PowerShell bloquea scripts y las URLs resultantes (`localhost:5173` y `localhost:8000/docs`). Transmite: el "arranque express" de 30 segundos, sin explicación.
 
@@ -68,13 +74,13 @@ La chuleta rápida de arranque. El mínimo para tener la app corriendo en local 
 
 ## Carpeta `1-REVISION_DE_CODIGO_CLAUDE/`
 
-## 11. [Super-admin-prompt.md](1-REVISION_DE_CODIGO_CLAUDE/Super-admin-prompt.md)
+## 12. [Super-admin-prompt.md](1-REVISION_DE_CODIGO_CLAUDE/Super-admin-prompt.md)
 
 El prompt completo de la futura fase SaaS multi-tenant (organizaciones clientes, Stripe, webhooks con verificación de firma, roles `super_admin`/`org_admin`): requisitos explícitos con las fallas ya detectadas (firma del webhook, aislamiento multi-tenant, secretos sin default) puestos como condiciones "no negociables". Transmite: qué se le pide a la IA en la próxima gran fase.
 
 - **Análisis previo**: [PLAN_SUPER_ADMIN.md](PLAN/PLAN_SUPER_ADMIN.md) · **Arquitectura actual**: [PLAN_CLAUDE.md](PLAN/PLAN_CLAUDE.md).
 
-## 12. [PLAN_SUPER_ADMIN.md](PLAN/PLAN_SUPER_ADMIN.md) · `PLAN/`
+## 13. [PLAN_SUPER_ADMIN.md](PLAN/PLAN_SUPER_ADMIN.md) · `PLAN/`
 
 El análisis de diseño previo al prompt: concepto `Organization` (el tenant), los 4 roles bien separados, cambios en el modelo de datos, multi-tenancy en cada query, qué hace y qué no hace `super_admin`, migración de lo existente y la pregunta abierta sobre el alta del primer `org_admin`. Transmite: el "por qué" y las reglas antes de escribir código.
 
@@ -84,7 +90,7 @@ El análisis de diseño previo al prompt: concepto `Organization` (el tenant), l
 
 ## Archivos en la raíz del repositorio
 
-## 13. [CHANGELOG.md](../CHANGELOG.md)
+## 14. [CHANGELOG.md](../CHANGELOG.md)
 
 La bitácora de entregas (historial legible sin git). Formato [Keep a Changelog](https://keepachangelog.com/es/1.1.0/): una entrada por fase — `## [Fase 0]` … `## [Fase 3]`, `## [Fase A]`–`[Fase D]` (admin), `## [Fase T]` (profesor) y `## [Fase S]` (alumno) — ordenadas de más reciente a más antigua, y cada entrada con dos bloques:
 
@@ -93,7 +99,7 @@ La bitácora de entregas (historial legible sin git). Formato [Keep a Changelog]
 
 Para qué sirve: responder de un vistazo "¿qué se hizo en cada fase y qué falta?" sin tener que leer el historial de commits; es el documento que se actualiza al cerrar cada fase (uno de los criterios de aceptación de todos los planes: [PLAN_ADMIN.md](PLAN/PLAN_ADMIN.md), [PLAN_PROFESOR.md](PLAN/PLAN_PROFESOR.md), [PLAN_ALUMNO.md](PLAN/PLAN_ALUMNO.md)).
 
-## 14. [README.md](../README.md)
+## 15. [README.md](../README.md)
 
 La puerta de entrada del repositorio. Presenta el producto (Aspasia/aula virtual), para qué sirve, roles y permisos, flujos de registro y acceso con credenciales de demo, pantallas, arquitectura técnica y modelo de datos, calidad con tests, instalación express (Docker o local) y documentación relacionada. Transmite: qué es el proyecto y cómo empezar en 5 minutos — el primer archivo que abre quien llega nuevo.
 
@@ -102,6 +108,6 @@ La puerta de entrada del repositorio. Presenta el producto (Aspasia/aula virtual
 ### Resumen
 
 - **Instrucciones**: [prompt](PROMPT_INICIAL/prompt_Claude_PrimerasFases.md) (qué pedir) → planes `PLAN_*` en [`PLAN/`](PLAN/) (cómo se decidió: [Claude](PLAN/PLAN_CLAUDE.md), [Admin](PLAN/PLAN_ADMIN.md), [Profesor](PLAN/PLAN_PROFESOR.md), [Alumno](PLAN/PLAN_ALUMNO.md)).
-- **Estado**: informes `TRABAJO_REALIZADO_*` en [`PLANES_APLICADO_CON_EXITO/`](PLANES_APLICADO_CON_EXITO/) (qué hay: [Admin](PLANES_APLICADO_CON_EXITO/TRABAJO_REALIZADO_EN_ADMIN.md), [Profesor](PLANES_APLICADO_CON_EXITO/TRABAJO_REALIZADO_EN_PROFESOR.md), [Alumno](PLANES_APLICADO_CON_EXITO/TRABAJO_REALIZADO_EN_ALUMNO.md)) + [CHANGELOG.md](../CHANGELOG.md) (historial por fases).
+- **Estado**: informes `TRABAJO_REALIZADO_*` en [`PLANES_APLICADO_CON_EXITO/`](PLANES_APLICADO_CON_EXITO/) (qué hay: [Admin](PLANES_APLICADO_CON_EXITO/TRABAJO_REALIZADO_EN_ADMIN.md), [Profesor](PLANES_APLICADO_CON_EXITO/TRABAJO_REALIZADO_EN_PROFESOR.md), [Alumno](PLANES_APLICADO_CON_EXITO/TRABAJO_REALIZADO_EN_ALUMNO.md), [Super-admin](PLANES_APLICADO_CON_EXITO/TRABAJO_REALIZADO_EN_SUPER_ADMIN.md)) + [CHANGELOG.md](../CHANGELOG.md) (historial por fases).
 - **Uso**: [COMANDOS_DE_LA_APP.md](COMANDOS/COMANDOS_DE_LA_APP.md) (manual completo) → [run_comando.md](COMANDOS/run_comando.md) (arranque express) → [README.md](../README.md) (presentación general).
-- **SaaS multi-tenant (próxima fase)**: [Super-admin-prompt.md](1-REVISION_DE_CODIGO_CLAUDE/Super-admin-prompt.md) (requisitos) ← [PLAN_SUPER_ADMIN.md](PLAN/PLAN_SUPER_ADMIN.md) (análisis), con [FIXES.md](1-REVISION_DE_CODIGO_CLAUDE/FIXES.md) y [DESPLIEGUE.md](1-REVISION_DE_CODIGO_CLAUDE/DESPLIEGUE.md).
+- **SaaS multi-tenant (fases A–D aplicadas)**: [Super-admin-prompt.md](1-REVISION_DE_CODIGO_CLAUDE/Super-admin-prompt.md) (requisitos) ← [PLAN_SUPER_ADMIN.md](PLAN/PLAN_SUPER_ADMIN.md) (análisis) → entregas en [TRABAJO_REALIZADO_EN_SUPER_ADMIN.md](PLANES_APLICADO_CON_EXITO/TRABAJO_REALIZADO_EN_SUPER_ADMIN.md), con [FIXES.md](1-REVISION_DE_CODIGO_CLAUDE/FIXES.md) y [DESPLIEGUE.md](1-REVISION_DE_CODIGO_CLAUDE/DESPLIEGUE.md).

@@ -20,6 +20,8 @@ type AuthState = {
     pin: string;
   }) => Promise<TokenPayload>;
   loginStaff: (input: { email: string; password: string }) => Promise<TokenPayload>;
+  /** Tras verificar el código TOTP del reto 2FA de super_admin (Fase D). */
+  finishMfaLogin: (input: { access_token: string; must_change_credentials: boolean }) => void;
   changeCredentials: (input: { current_secret: string; new_secret: string }) => Promise<void>;
   refreshUser: () => Promise<void>;
   logout: () => void;
@@ -68,10 +70,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const loginStaff = useCallback(async (input: { email: string; password: string }) => {
     const tokens = await apiSend<TokenPayload>("POST", "/auth/login/staff", input);
+    // Reto 2FA de super_admin: NO hay sesión hasta verificar el TOTP
+    if (tokens.mfa_required) return tokens;
     setSession(tokens, "staff");
     setState({ isAuthenticated: true, mustChange: tokens.must_change_credentials });
     return tokens;
   }, []);
+
+  const finishMfaLogin = useCallback(
+    (input: { access_token: string; must_change_credentials: boolean }) => {
+      setSession(input, "staff");
+      setState({ isAuthenticated: true, mustChange: input.must_change_credentials });
+    },
+    [],
+  );
 
   const changeCredentials = useCallback(
     async (input: { current_secret: string; new_secret: string }) => {
@@ -106,6 +118,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user,
       loginStudent,
       loginStaff,
+      finishMfaLogin,
       changeCredentials,
       refreshUser,
       logout,
@@ -116,6 +129,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user,
       loginStudent,
       loginStaff,
+      finishMfaLogin,
       changeCredentials,
       refreshUser,
       logout,

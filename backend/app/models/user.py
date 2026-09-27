@@ -61,6 +61,16 @@ class User(Base):
         nullable=True,
         index=True,
     )
+    # 2FA TOTP (Fase D): solo para super_admin. El secreto se guarda en claro
+    # porque la verificación TOTP lo necesita; `mfa_enabled` solo es true
+    # tras confirmar el primer código.
+    mfa_secret: Mapped[str | None] = mapped_column(String(64))
+    mfa_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="0",
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

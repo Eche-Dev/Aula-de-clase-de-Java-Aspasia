@@ -40,6 +40,7 @@ from app.security.policies import (
     DbSession,
     can_read_submission,
     can_write_submission,
+    ensure_same_org,
     require_teacher_of_course,
 )
 from app.services.audit import log_action
@@ -55,8 +56,19 @@ def _get_course(db: Session, course_id: int) -> Course:
     return course
 
 
+def _assert_staff_org(user: User, course: Course) -> None:
+    """Fase C: staff solo de SU organización; super_admin no toca contenido académico."""
+    if user.role is UserRole.super_admin:
+        raise HTTPException(status_code=403, detail="Staff access required")
+    ensure_same_org(user, course.organization_id, detail="Course not found")
+
+
 def _assert_enrolled(db: Session, user: User, course_id: int) -> None:
     if user.role in (UserRole.org_admin, UserRole.teacher):
+        course = db.get(Course, course_id)
+        if course is None:
+            raise HTTPException(status_code=404, detail="Course not found")
+        _assert_staff_org(user, course)
         return
     row = db.scalar(
         select(Enrollment).where(
@@ -126,6 +138,7 @@ def create_assignment(
     user: Annotated[User, Depends(CurrentUser)],
 ) -> AssignmentPublic:
     course = _get_course(db, body.course_id)
+    _assert_staff_org(user, course)
     if user.role is UserRole.student:
         raise HTTPException(status_code=403, detail="Teacher access required")
     if user.role is UserRole.teacher:
@@ -187,6 +200,7 @@ def get_assignment(
 
 def _assert_teacher_of(db: Session, user: User, course_id: int) -> Course:
     course = _get_course(db, course_id)
+    _assert_staff_org(user, course)
     if user.role is UserRole.student:
         raise HTTPException(status_code=403, detail="Teacher access required")
     if user.role is UserRole.teacher:

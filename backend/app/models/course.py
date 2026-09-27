@@ -47,11 +47,13 @@ class EnrollmentStatus(StrEnum):
 
 class Course(Base):
     __tablename__ = "courses"
+    # Fase C: code único POR organización (cada centro puede repetir códigos)
+    __table_args__ = (UniqueConstraint("code", "organization_id", name="uq_courses_code_org"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
-    code: Mapped[str] = mapped_column(String(16), nullable=False, unique=True, index=True)
+    code: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
     status: Mapped[CourseStatus] = mapped_column(
         nullable=False, default=CourseStatus.active, index=True
     )

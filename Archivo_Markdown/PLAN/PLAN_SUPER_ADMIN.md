@@ -2,7 +2,7 @@
 
 Te entiendo perfectamente, y es un cambio de arquitectura real, no un ajuste menor: pasas de "una plataforma con cursos" a "una plataforma con clientes que tienen cursos". Vamos a lo concreto.
 
-**Documentación relacionada**: prompt completo [Super-admin-prompt.md](../1-REVISION_DE_CODIGO_CLAUDE/Super-admin-prompt.md) · arquitectura actual [PLAN_CLAUDE.md](PLAN_CLAUDE.md) · [Índice de docs](../Explicacion_de_Cada_ARCHIVO.md) · [CHANGELOG.md](../../CHANGELOG.md).
+**Documentación relacionada**: prompt completo [Super-admin-prompt.md](../1-REVISION_DE_CODIGO_CLAUDE/Super-admin-prompt.md) · arquitectura actual [PLAN_CLAUDE.md](PLAN_CLAUDE.md) · informe de entrega [TRABAJO_REALIZADO_EN_SUPER_ADMIN.md](../PLANES_APLICADO_CON_EXITO/TRABAJO_REALIZADO_EN_SUPER_ADMIN.md) · [Índice de docs](../Explicacion_de_Cada_ARCHIVO.md) · [CHANGELOG.md](../../CHANGELOG.md).
 
 ---
 

@@ -43,6 +43,7 @@ from app.schemas.phase_c import (
 )
 from app.security.policies import (
     DbSession,
+    ensure_same_org,
     require_admin,
     require_permission,
     require_staff_of_course,
@@ -54,13 +55,14 @@ router = APIRouter(tags=["phase-c"])
 SETTINGS_KEY = "center"
 
 
-def _settings_dict(db: Session) -> dict[str, Any]:
-    row = db.get(SystemSetting, SETTINGS_KEY)
+def _settings_dict(db: Session, org_id: int | None) -> dict[str, Any]:
+    # Fase C: los ajustes del centro son POR organización (PK compuesta)
+    row = db.get(SystemSetting, (SETTINGS_KEY, org_id))
     return dict(row.value) if row else {}
 
 
-def _center_settings(db: Session) -> CenterSettings:
-    raw = _settings_dict(db)
+def _center_settings(db: Session, org_id: int | None) -> CenterSettings:
+    raw = _settings_dict(db, org_id)
     return CenterSettings(**{k: v for k, v in raw.items() if k in CenterSettings.model_fields})
 
 
@@ -104,7 +106,10 @@ def multi_course_dashboard(
     db: DbSession,
     _admin: Annotated[User, Depends(require_admin)],
 ) -> MultiCourseDashboard:
-    courses = db.scalars(select(Course).order_by(Course.name)).all()
+    # Fase C: solo cursos de la propia organización
+    courses = db.scalars(
+        select(Course).where(Course.organization_id == _admin.organization_id).order_by(Course.name)
+    ).all()
     rows: list[MultiCourseRow] = []
     totals = {
         "courses": len(courses),
@@ -219,7 +224,7 @@ def get_center_settings(
     db: DbSession,
     _user: Annotated[User, Depends(require_permission("settings.manage"))],
 ) -> CenterSettings:
-    return _center_settings(db)
+    return _center_settings(db, _user.organization_id)
 
 
 @router.put("/admin/settings", response_model=CenterSettings)
@@ -229,13 +234,16 @@ def update_center_settings(
     admin: Annotated[User, Depends(require_permission("settings.manage"))],
     request: Request,
 ) -> CenterSettings:
-    current = _center_settings(db)
+    org_id = admin.organization_id
+    if org_id is None:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    current = _center_settings(db, org_id)
     patch = body.model_dump(exclude_unset=True)
     merged = current.model_dump()
     merged.update(patch)
-    row = db.get(SystemSetting, SETTINGS_KEY)
+    row = db.get(SystemSetting, (SETTINGS_KEY, org_id))
     if row is None:
-        db.add(SystemSetting(key=SETTINGS_KEY, value=merged))
+        db.add(SystemSetting(key=SETTINGS_KEY, organization_id=org_id, value=merged))
     else:
         row.value = merged
     log_action(
@@ -256,8 +264,11 @@ def reports_overview(
     db: DbSession,
     _user: Annotated[User, Depends(require_permission("reports.view"))],
 ) -> ReportOverview:
-    center = _center_settings(db)
-    courses = db.scalars(select(Course).order_by(Course.name)).all()
+    center = _center_settings(db, _user.organization_id)
+    # Fase C: solo cursos de la propia organización
+    courses = db.scalars(
+        select(Course).where(Course.organization_id == _user.organization_id).order_by(Course.name)
+    ).all()
     rows: list[ReportCourseRow] = []
     totals = {
         "courses": len(courses),
@@ -395,6 +406,8 @@ def course_backup(
     course = db.get(Course, course_id)
     if course is None:
         raise HTTPException(status_code=404, detail="Course not found")
+    # Fase C: backup solo de cursos de la propia organización
+    ensure_same_org(_admin, course.organization_id, detail="Course not found")
     db.refresh(course)
 
     course_teachers = db.scalars(

@@ -4,14 +4,20 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 
-from app.models import UserRole
+from app.models import User, UserRole
 from app.schemas.auth import (
     ChangeCredentialsRequest,
     LoginStaffRequest,
     LoginStudentRequest,
     LogoutRequest,
+    MfaDisableRequest,
+    MfaSetupRequest,
+    MfaSetupResponse,
+    MfaVerifyRequest,
+    MfaVerifyResponse,
     ProfileUpdateRequest,
     RefreshRequest,
+    StaffLoginResponse,
     TokenResponse,
     UserPublic,
 )
@@ -20,7 +26,9 @@ from app.security.policies import (
     CurrentUser,
     CurrentUserWithPendingChange,
     DbSession,
+    OptionalSessionUser,
     current_user_from_token,
+    require_super_admin,
 )
 from app.services import auth_service
 from app.services.activation import ActivationError, activate_account, find_user_by_activation_token
@@ -54,10 +62,21 @@ def _handle_auth_error(exc: AuthError) -> HTTPException:
     return HTTPException(status_code=exc.status_code, detail=exc.detail)
 
 
-def _token_response(tokens: dict[str, object], response: Response) -> TokenResponse:
-    """El refresh token viaja SOLO en la cookie httponly, nunca en el body."""
+def _token_response(tokens: dict[str, object], response: Response) -> StaffLoginResponse:
+    """El refresh token viaja SOLO en la cookie httponly, nunca en el body.
+
+    En el reto 2FA de super_admin no hay refresh: solo el `mfa_token` de 5 min.
+    """
+    if bool(tokens.get("mfa_required")):
+        return StaffLoginResponse(
+            token_type=str(tokens["token_type"]),
+            must_change_credentials=bool(tokens["must_change_credentials"]),
+            mfa_required=True,
+            mfa_token=str(tokens["mfa_token"]),
+            mfa_enrolled=bool(tokens["mfa_enrolled"]),
+        )
     _set_refresh_cookie(response, str(tokens["refresh_token"]))
-    return TokenResponse(
+    return StaffLoginResponse(
         access_token=str(tokens["access_token"]),
         token_type=str(tokens["token_type"]),
         must_change_credentials=bool(tokens["must_change_credentials"]),
@@ -85,13 +104,14 @@ def login_student(
     return _token_response(tokens, response)
 
 
-@router.post("/login/staff", response_model=TokenResponse)
+@router.post("/login/staff", response_model=StaffLoginResponse)
 def login_staff(
     body: LoginStaffRequest,
     request: Request,
     response: Response,
     db: DbSession,
-) -> TokenResponse:
+) -> StaffLoginResponse:
+    """Staff normal → tokens; super_admin → reto 2FA (sin tokens hasta verify)."""
     ip = request.client.host if request.client else None
     try:
         _user, tokens = auth_service.login_staff(
@@ -221,3 +241,87 @@ def activation(body: ActivationRequest, db: DbSession) -> ActivationResponse:
     except ActivationError as exc:
         raise HTTPException(status_code=400, detail=exc.detail) from exc
     return ActivationResponse(status="activated", email=user.email or "")
+
+
+# --- 2FA TOTP (Fase D, exclusivo de super_admin) ---
+
+
+def _resolve_mfa_user(
+    db: DbSession,
+    mfa_token: str | None,
+    session_user: User | None,
+) -> User:
+    """Quién está detrás de una llamada MFA: el reto de login o la sesión."""
+    if mfa_token:
+        try:
+            return auth_service.user_from_mfa_token(db, mfa_token)
+        except AuthError as exc:
+            raise _handle_auth_error(exc) from exc
+    if session_user is not None:
+        if session_user.role is not UserRole.super_admin:
+            raise HTTPException(status_code=403, detail="Super admin access required")
+        return session_user
+    raise HTTPException(status_code=401, detail="Not authenticated")
+
+
+@router.post("/mfa/setup", response_model=MfaSetupResponse)
+def mfa_setup(
+    body: MfaSetupRequest,
+    db: DbSession,
+    session_user: Annotated[User | None, Depends(OptionalSessionUser)],
+) -> MfaSetupResponse:
+    """Genera el secreto TOTP pendiente (flujo de login o sesión propia)."""
+    user = _resolve_mfa_user(db, body.mfa_token, session_user)
+    try:
+        secret, url = auth_service.mfa_begin_setup(db, user)
+    except AuthError as exc:
+        raise _handle_auth_error(exc) from exc
+    return MfaSetupResponse(secret=secret, otpauth_url=url, mfa_enabled=user.mfa_enabled)
+
+
+@router.post("/mfa/verify", response_model=MfaVerifyResponse)
+def mfa_verify(
+    body: MfaVerifyRequest,
+    request: Request,
+    response: Response,
+    db: DbSession,
+    session_user: Annotated[User | None, Depends(OptionalSessionUser)],
+) -> MfaVerifyResponse:
+    """Confirma el primer código (activa) o valida el habitual.
+
+    Viniendo de un `mfa_token` de login emite los tokens reales de sesión.
+    """
+    from_login = body.mfa_token is not None
+    user = _resolve_mfa_user(db, body.mfa_token, session_user)
+    ip = request.client.host if request.client else None
+    try:
+        tokens = auth_service.mfa_verify(
+            db, user=user, code=body.code, ip=ip, issue_tokens_flag=from_login
+        )
+    except AuthError as exc:
+        raise _handle_auth_error(exc) from exc
+    if tokens is not None:
+        _set_refresh_cookie(response, str(tokens["refresh_token"]))
+        return MfaVerifyResponse(
+            mfa_enabled=True,
+            access_token=str(tokens["access_token"]),
+            token_type=str(tokens["token_type"]),
+            must_change_credentials=bool(tokens["must_change_credentials"]),
+        )
+    return MfaVerifyResponse(mfa_enabled=user.mfa_enabled)
+
+
+@router.post("/mfa/disable", status_code=status.HTTP_204_NO_CONTENT)
+def mfa_disable(
+    body: MfaDisableRequest,
+    request: Request,
+    db: DbSession,
+    user: Annotated[User, Depends(require_super_admin)],
+) -> Response:
+    """Desactiva el 2FA con un código vigente (exige sesión propia)."""
+    ip = request.client.host if request.client else None
+    try:
+        auth_service.mfa_disable(db, user=user, code=body.code, ip=ip)
+    except AuthError as exc:
+        raise _handle_auth_error(exc) from exc
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

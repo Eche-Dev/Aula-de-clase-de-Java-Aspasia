@@ -9,6 +9,7 @@ export function AppLayout() {
   const isAdmin = user?.role === "org_admin";
   const isTeacher = user?.role === "teacher";
   const isStudent = user?.role === "student";
+  const isSuperAdmin = user?.role === "super_admin";
   const unread = useUnreadCount();
   const unreadTotal = unread.data?.total ?? 0;
 
@@ -22,38 +23,52 @@ export function AppLayout() {
           <nav className="flex flex-wrap items-center gap-3 text-sm">
             {isAuthenticated && !mustChange ? (
               <>
-                <NavLink
-                  to="/courses"
-                  className={({ isActive }) =>
-                    isActive ? "text-primary underline" : "text-muted hover:text-text"
-                  }
-                >
-                  Cursos
-                </NavLink>
-                <NavLink
-                  to="/calendar"
-                  className={({ isActive }) =>
-                    isActive ? "text-primary underline" : "text-muted hover:text-text"
-                  }
-                >
-                  Calendario
-                </NavLink>
-                <NavLink
-                  to="/messages"
-                  className={({ isActive }) =>
-                    isActive ? "text-primary underline" : "text-muted hover:text-text"
-                  }
-                >
-                  Mensajes
-                  {unreadTotal > 0 ? (
-                    <span
-                      className="ml-1 rounded-full bg-primary px-1.5 py-0.5 text-xs font-medium text-white"
-                      aria-label={`${unreadTotal} mensajes sin leer`}
+                {isSuperAdmin ? (
+                  <NavLink
+                    to="/plataforma"
+                    className={({ isActive }) =>
+                      isActive ? "text-primary underline" : "text-muted hover:text-text"
+                    }
+                  >
+                    Plataforma
+                  </NavLink>
+                ) : null}
+                {isSuperAdmin ? null : (
+                  <>
+                    <NavLink
+                      to="/courses"
+                      className={({ isActive }) =>
+                        isActive ? "text-primary underline" : "text-muted hover:text-text"
+                      }
                     >
-                      {unreadTotal}
-                    </span>
-                  ) : null}
-                </NavLink>
+                      Cursos
+                    </NavLink>
+                    <NavLink
+                      to="/calendar"
+                      className={({ isActive }) =>
+                        isActive ? "text-primary underline" : "text-muted hover:text-text"
+                      }
+                    >
+                      Calendario
+                    </NavLink>
+                    <NavLink
+                      to="/messages"
+                      className={({ isActive }) =>
+                        isActive ? "text-primary underline" : "text-muted hover:text-text"
+                      }
+                    >
+                      Mensajes
+                      {unreadTotal > 0 ? (
+                        <span
+                          className="ml-1 rounded-full bg-primary px-1.5 py-0.5 text-xs font-medium text-white"
+                          aria-label={`${unreadTotal} mensajes sin leer`}
+                        >
+                          {unreadTotal}
+                        </span>
+                      ) : null}
+                    </NavLink>
+                  </>
+                )}
                 <NavLink
                   to="/account"
                   className={({ isActive }) =>
@@ -109,9 +124,20 @@ export function AppLayout() {
                 </button>
               </>
             ) : isAuthenticated ? null : (
-              <Link to="/login" className="rounded-md border border-border px-3 py-1.5 hover:bg-bg">
-                Entrar
-              </Link>
+              <>
+                <Link
+                  to="/precios"
+                  className="rounded-md border border-border px-3 py-1.5 hover:bg-bg"
+                >
+                  Precios
+                </Link>
+                <Link
+                  to="/login"
+                  className="rounded-md border border-border px-3 py-1.5 hover:bg-bg"
+                >
+                  Entrar
+                </Link>
+              </>
             )}
             <button
               type="button"

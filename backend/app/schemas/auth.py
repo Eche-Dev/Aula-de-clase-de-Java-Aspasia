@@ -33,6 +33,57 @@ class TokenResponse(BaseModel):
     must_change_credentials: bool
 
 
+class StaffLoginResponse(TokenResponse):
+    """Login staff; para super_admin devuelve el reto 2FA en vez de tokens.
+
+    En el reto `access_token` queda vacío (nunca hay sesión sin el segundo
+    factor) y `mfa_token` es un JWT corto de propósito único.
+    """
+
+    access_token: str = ""
+    mfa_required: bool = False
+    mfa_token: str | None = None
+    mfa_enrolled: bool = False
+
+
+class MfaSetupRequest(BaseModel):
+    """Genera el secreto TOTP pendiente (flujo de login o con sesión propia)."""
+
+    mfa_token: str | None = Field(default=None, max_length=2048)
+
+
+class MfaSetupResponse(BaseModel):
+    secret: str
+    otpauth_url: str
+    mfa_enabled: bool = False
+
+
+class MfaVerifyRequest(BaseModel):
+    """Confirma el primer código (activa) o valida el habitual.
+
+    Con `mfa_token` emite los tokens de sesión; con sesión propia solo
+    confirma/desactiva el factor.
+    """
+
+    mfa_token: str | None = Field(default=None, max_length=2048)
+    code: str = Field(min_length=6, max_length=6, pattern=r"^\d{6}$")
+
+
+class MfaVerifyResponse(BaseModel):
+    """Tokens solo cuando venían de un `mfa_token` de login."""
+
+    mfa_enabled: bool
+    access_token: str | None = None
+    token_type: str = Field(default="bearer")
+    must_change_credentials: bool | None = None
+
+
+class MfaDisableRequest(BaseModel):
+    """Desactivar el 2FA exige un código vigente (no basta la sesión)."""
+
+    code: str = Field(min_length=6, max_length=6, pattern=r"^\d{6}$")
+
+
 class RefreshRequest(BaseModel):
     refresh_token: str | None = None
 
@@ -58,6 +109,7 @@ class UserPublic(BaseModel):
     role: UserRole
     is_active: bool
     must_change_credentials: bool
+    mfa_enabled: bool = False
     created_at: datetime
 
 

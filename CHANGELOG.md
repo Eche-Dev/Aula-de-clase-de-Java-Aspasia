@@ -2,7 +2,141 @@
 
 Formato: [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
-**Documentación relacionada**: [README](./README.md) · índice [Explicacion_de_Cada_ARCHIVO](./Archivo_Markdown/Explicacion_de_Cada_ARCHIVO.md) · planes ([Claude](./Archivo_Markdown/PLAN/PLAN_CLAUDE.md), [Admin](./Archivo_Markdown/PLAN/PLAN_ADMIN.md), [Profesor](./Archivo_Markdown/PLAN/PLAN_PROFESOR.md), [Alumno](./Archivo_Markdown/PLAN/PLAN_ALUMNO.md), [Super-admin](./Archivo_Markdown/PLAN/PLAN_SUPER_ADMIN.md)) · informes ([Admin](./Archivo_Markdown/PLANES_APLICADO_CON_EXITO/TRABAJO_REALIZADO_EN_ADMIN.md), [Profesor](./Archivo_Markdown/PLANES_APLICADO_CON_EXITO/TRABAJO_REALIZADO_EN_PROFESOR.md), [Alumno](./Archivo_Markdown/PLANES_APLICADO_CON_EXITO/TRABAJO_REALIZADO_EN_ALUMNO.md)) · [comandos](./Archivo_Markdown/COMANDOS/COMANDOS_DE_LA_APP.md).
+**Documentación relacionada**: [README](./README.md) · índice [Explicacion_de_Cada_ARCHIVO](./Archivo_Markdown/Explicacion_de_Cada_ARCHIVO.md) · planes ([Claude](./Archivo_Markdown/PLAN/PLAN_CLAUDE.md), [Admin](./Archivo_Markdown/PLAN/PLAN_ADMIN.md), [Profesor](./Archivo_Markdown/PLAN/PLAN_PROFESOR.md), [Alumno](./Archivo_Markdown/PLAN/PLAN_ALUMNO.md), [Super-admin](./Archivo_Markdown/PLAN/PLAN_SUPER_ADMIN.md)) · informes ([Admin](./Archivo_Markdown/PLANES_APLICADO_CON_EXITO/TRABAJO_REALIZADO_EN_ADMIN.md), [Profesor](./Archivo_Markdown/PLANES_APLICADO_CON_EXITO/TRABAJO_REALIZADO_EN_PROFESOR.md), [Alumno](./Archivo_Markdown/PLANES_APLICADO_CON_EXITO/TRABAJO_REALIZADO_EN_ALUMNO.md), [Super-admin](./Archivo_Markdown/PLANES_APLICADO_CON_EXITO/TRABAJO_REALIZADO_EN_SUPER_ADMIN.md)) · [comandos](./Archivo_Markdown/COMANDOS/COMANDOS_DE_LA_APP.md).
+
+## [Fase D SaaS] — 2026-09-28
+
+### Hecho
+
+- Backend (Fase D de `1-REVISION_DE_CODIGO_CLAUDE/Super-admin-prompt.md`):
+  **2FA TOTP obligatorio para `super_admin`** (RFC 6238, sin dependencias
+  nuevas).
+  - `app/services/totp.py` (nuevo, solo stdlib): secreto base32, código de
+    6 dígitos / 30 s / SHA-1, `verify_totp` con ventana ±1 y `otpauth_url`
+    con issuer `Aspasia`. Vectores del RFC 6238 en verde (8 dígitos → se
+    compara la cola de 6).
+  - **Modelo + migración `d8e9f0a1b2c3`** (revisión `c7d8e9f0a1b2`):
+    `users.mfa_secret` (String(64) nullable) + `users.mfa_enabled`
+    (Boolean NOT NULL, `server_default` false); aplicada a `dev.db` con
+    roundtrip `downgrade -1 → upgrade head` verificado.
+  - **Reto de login** (`auth_service.login_staff`): `super_admin` ya **no**
+    recibe tokens en `POST /auth/login/staff` → `StaffLoginResponse` con
+    `access_token=""`, `mfa_required=true`, `mfa_token` (JWT `type=mfa`, 5
+    min) y `mfa_enrolled`; el resto de roles conserva `TokenResponse`
+    (regresión cubierta). Audita `auth.mfa_challenge`.
+  - **Endpoints `/auth/mfa/*`**: `setup` (secreto pendiente sin activar,
+    409 si ya activo), `verify` (TOTP ±1 → activa; con `mfa_token` emite la
+    sesión real, con sesión solo confirma; fallo → audit `mfa_failed` y
+    **429 a los 5 intentos**) y `disable` (204, exige código vigente +
+    `require_super_admin`, audita `mfa_disabled`). Estados expuestos en
+    `UserPublic.mfa_enabled`; `OptionalSessionUser` en `policies.py`.
+  - **Tests** `tests/test_saas_phase_d.py` (**14**): vectores RFC +
+    drift ±1, challenge sin tokens + regresión de roles, flujo completo
+    setup → verify → tokens → relogin ya enrolled, código inválido → 401 y
+    lockout 429, `mfa_token` basura/`type != mfa` → 401, fronteras de rol
+    y disable con código correcto → 204. `MIGRATION_HEAD` de phase A →
+    `d8e9f0a1b2c3`.
+  - **Prueba de mutación** (evidencia en PLAN §14.4): sabotear el reto en
+    `login_staff` (`if False and …`) → **`4 failed, 10 passed`** →
+    revertida → `14 passed`.
+- Frontend (Fase D): **páginas públicas + panel de la plataforma + acceso
+  2FA**.
+  - Públicas: `/precios` (catálogo con CTA a `/registro-empresa?plan=`),
+    `/registro-empresa` (alta con plan preseleccionado de la URL y salto al
+    Checkout de Stripe vía `lib/checkout.ts` `redirectToCheckout`; errores
+    traducidos: 409 duplicado, 503 sin precio, 502 Stripe caído) y
+    `/activar-cuenta/:token` (contraseña en un solo uso, 48 h).
+  - **Acceso de la plataforma** `/plataforma/acceso` (NO enlazada en la web
+    pública): contraseña → reto 2FA con setup la primera vez (muestra
+    secreto + `otpauth_url`, sin QR) → código → sesión; `loginStaff` con
+    `mfa_required` **no** crea sesión (`AuthContext.finishMfaLogin`).
+  - **Panel `/plataforma`** con guard `RequireSuperAdmin` y layout propio:
+    métricas (agregados de negocio), organizaciones (filtros, alta, edición
+    en línea y borrado en dos pasos), suscripciones y sección 2FA
+    (alta/desactivación con código).
+  - Redirección por rol: `homePathAfterLogin` (`super_admin → /plataforma`,
+    `org_admin → /admin`) y navegación distinta según sesión (con sesión sin
+    sesión: link "Precios"; `super_admin` autenticado solo ve
+    "Plataforma"/"Mi cuenta"/"Salir").
+  - **Tests Vitest +18** (`PublicPhaseD`, `SuperAdminPhaseD` y
+    `routes.test.tsx` ampliado): planes, 409 de registro, activación
+    válida/caducada, plan preseleccionado, flujo enrolled y primera vez,
+    código incorrecto, métricas, guard de rol, borrado en dos pasos,
+    gestión del 2FA y reto desde el login.
+- **Gates**: backend `ruff` + `format` + `mypy` (75 módulos) en verde,
+  `pytest --cov=app` → **177 tests · 87.11 %**; frontend `eslint` +
+  `prettier --check` + `tsc -b` en verde, `vitest` → **85 tests** (de 66);
+  `alembic current` → `d8e9f0a1b2c3 (head)`.
+- Documentación: `PLAN_CLAUDE.md` §14 → IMPLEMENTADA (con evidencia de
+  gates y mutación) e informe
+  [TRABAJO_REALIZADO_EN_SUPER_ADMIN.md](./Archivo_Markdown/PLANES_APLICADO_CON_EXITO/TRABAJO_REALIZADO_EN_SUPER_ADMIN.md)
+  actualizado a Fases A–D.
+
+### Pendiente / limitaciones
+
+- Sin escáner QR para el 2FA (se muestra el secreto y el `otpauth_url`;
+  dependencia nueva deliberadamente evitada).
+- WebSocket y emails fuera del flujo de activación siguen fuera de alcance
+  (heredado de fases previas).
+
+## [Fase C SaaS] — 2026-09-28
+
+### Hecho
+
+- Backend (Fase C de `1-REVISION_DE_CODIGO_CLAUDE/Super-admin-prompt.md`):
+  **aislamiento multi-tenant en todas las rutas + rutas `/superadmin/*`**.
+  - **Choke points nuevos en `security/policies.py`**:
+    `ensure_same_org(user, resource_org_id, detail)` (recurso de otra org →
+    **404, nunca 403**), `_ensure_course_org` (llamado dentro de
+    `get_course_or_404`, `require_staff_of_course` y `require_enrolled` —
+    cubre también las llamadas directas con `_get_course` locales),
+    `require_super_admin` (solo `UserRole.super_admin`) y la rama
+    `org_admin` de `can_read_submission` que exige curso de la propia org.
+  - **Scoping endpoint a endpoint** en los 5 ficheros admin (65 rutas):
+    `admin.py` (12: usuarios, reset-pin/password/status/unlock,
+    import-students, audit-logs vía JOIN por actor, dashboard KPIs +
+    `recent_audit`/`recent_subs`, observer submissions/evaluations),
+    `courses.py` (17, vía choke + `ensure_same_org` en student/teacher),
+    `phase3.py` (clone con `organization_id` del admin, RGPD admin),
+    `phase_c.py` (multi dashboard, settings por org, reports, backup),
+    `phase_d.py` (22: categorías, cohorts, roles, sesiones, taxonomy,
+    auto-enroll, custom-role, unlock); además `messages.py` (5 fugas:
+    `_can_message`, directorio, unread-count, thread, envío) y
+    `course_chat.py`/`calendar_inst.py`/`work.py`.
+  - **Rutas nuevas `/api/v1/superadmin/*`** (`routes/superadmin.py` +
+    `schemas/superadmin.py`, con `require_super_admin`): CRUD de
+    organizaciones (DELETE solo de org vacía → 409 con detalle),
+    `GET /superadmin/subscriptions` y `GET /superadmin/metrics`
+    (agregados **sin datos académicos**); `super_admin` sigue con 403 en
+    `/admin/*` y `org_admin` con 403 en `/superadmin/*`.
+  - **Modelo + migración `c7d8e9f0a1b2`**: `organization_id` (FK, backfill
+    org 1) en `course_categories`, `cohorts`, `custom_roles` y
+    `system_settings`; PK de `system_settings` pasa a
+    `(key, organization_id)`; unicidades globales → compuestas por org
+    (`courses.code`, `slug`, `code` de cohorte, `name` de rol). Aplicada a
+    `dev.db` con roundtrip upgrade→downgrade→upgrade verificado; los
+    tests usan `create_all`, por eso el default de seguridad `1` en el
+    modelo.
+  - **Tests** `tests/test_saas_phase_c.py` (14): el principal crea las dos
+    orgs con el **flujo real de la Fase B** (registro + webhook firmado +
+    activación); cobertura de la matriz de aislamiento (usuarios, cursos,
+    contenido académico, settings, sesiones, audit logs), unicidades por
+    org, asignaciones cruzadas → 404, CRUD de superadmin y fronteras de
+    rol.
+  - **Prueba de mutación** (evidencia en PLAN §13.4): (a) quitar el
+    `where(organization_id)` de `GET /admin/users` → 2 tests en rojo;
+    (b) sabotear `_ensure_course_org` a no-op → 2 tests en rojo
+    (`assert 200 == 404`). Nota: el check puntual de
+    `require_staff_of_course` resultó estar enmascarado por las capas de
+    `get_course_or_404`/`require_enrolled` (refuerzo en 3 sitios), así que
+    la mutación (b) se aplicó sobre el choke compartido.
+  - **Gates**: `ruff check` + `ruff format --check` + `mypy app` en verde;
+    `pytest --cov=app` → **163 tests · 86.75 %**; migración
+    `alembic current` → `c7d8e9f0a1b2`; frontend sin cambios
+    (`eslint` + 66 tests en verde).
+  - Fuera de alcance (→ Fase D): frontend (`/precios`,
+    `/registro-empresa`, `/activar-cuenta/:token`, rutas por rol, panel de
+    super_admin) y 2FA TOTP de `super_admin`.
 
 ## [Fase B SaaS] — 2026-09-26
 

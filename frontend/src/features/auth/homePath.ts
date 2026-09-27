@@ -1,7 +1,7 @@
 /**
- * Destino tras iniciar sesión / cambiar credenciales.
- * El teacher tiene panel en /teacher (D-T2 del plan del profesor) y el
- * student en /student (D-S2 del plan del alumno).
+ * Destino tras iniciar sesión / cambiar credenciales (redirección por rol).
+ * Cada rol tiene su panel: super_admin en /plataforma (Fase D SaaS),
+ * org_admin en /admin, teacher en /teacher (D-T2) y student en /student (D-S2).
  */
 function roleFromAccessToken(): string | null {
   const token = localStorage.getItem("aula.access_token");
@@ -19,7 +19,9 @@ function roleFromAccessToken(): string | null {
 
 export function homePathAfterLogin(): string {
   const role = roleFromAccessToken();
+  if (role === "super_admin") return "/plataforma";
   if (role === "teacher") return "/teacher";
   if (role === "student") return "/student";
+  if (role === "org_admin") return "/admin";
   return "/";
 }

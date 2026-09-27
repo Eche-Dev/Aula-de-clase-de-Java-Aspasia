@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, String, func
+from sqlalchemy import JSON, DateTime, ForeignKey, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -19,7 +19,14 @@ except ImportError:  # pragma: no cover
 class SystemSetting(Base):
     __tablename__ = "system_settings"
 
+    # Fase C: clave compuesta (key, organization_id) → cada centro tiene sus ajustes
     key: Mapped[str] = mapped_column(String(80), primary_key=True)
+    organization_id: Mapped[int] = mapped_column(
+        ForeignKey("organizations.id"),
+        primary_key=True,
+        default=1,
+        server_default="1",
+    )
     value: Mapped[dict[str, Any]] = mapped_column(
         JsonType, nullable=False, default=dict, server_default="{}"
     )

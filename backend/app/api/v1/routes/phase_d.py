@@ -47,6 +47,7 @@ from app.schemas.scale import (
 from app.security.policies import (
     CurrentUser,
     DbSession,
+    ensure_same_org,
     require_admin,
     require_staff_of_course,
     user_permissions,
@@ -68,12 +69,20 @@ def list_categories(
     db: DbSession,
     _user: Annotated[User, Depends(CurrentUser)],
 ) -> list[CategoryPublic]:
-    categories = db.scalars(select(CourseCategory).order_by(CourseCategory.name)).all()
+    # Fase C: categorías (y sus conteos) de la propia organización
+    categories = db.scalars(
+        select(CourseCategory)
+        .where(CourseCategory.organization_id == _user.organization_id)
+        .order_by(CourseCategory.name)
+    ).all()
     counts: dict[int, int] = {
         int(k): int(v)
         for k, v in db.execute(
             select(Course.category_id, func.count())
-            .where(Course.category_id.is_not(None))
+            .where(
+                Course.category_id.is_not(None),
+                Course.organization_id == _user.organization_id,
+            )
             .group_by(Course.category_id)
         ).all()
         if k is not None
@@ -93,9 +102,15 @@ def create_category(
     admin: Annotated[User, Depends(require_admin)],
     request: Request,
 ) -> CategoryPublic:
-    if db.scalar(select(CourseCategory).where(CourseCategory.slug == body.slug)):
+    # Fase C: slug único dentro de la organización
+    if db.scalar(
+        select(CourseCategory).where(
+            CourseCategory.slug == body.slug,
+            CourseCategory.organization_id == admin.organization_id,
+        )
+    ):
         raise HTTPException(status_code=409, detail="Slug already exists")
-    category = CourseCategory(**body.model_dump())
+    category = CourseCategory(**body.model_dump(), organization_id=admin.organization_id)
     db.add(category)
     log_action(
         db,
@@ -121,13 +136,16 @@ def update_category(
     category = db.get(CourseCategory, category_id)
     if category is None:
         raise HTTPException(status_code=404, detail="Category not found")
+    ensure_same_org(admin, category.organization_id, detail="Category not found")
     data = body.model_dump(exclude_unset=True)
     if (
         data.get("slug") is not None
         and data["slug"] != category.slug
         and db.scalar(
             select(CourseCategory).where(
-                CourseCategory.slug == data["slug"], CourseCategory.id != category.id
+                CourseCategory.slug == data["slug"],
+                CourseCategory.organization_id == admin.organization_id,
+                CourseCategory.id != category.id,
             )
         )
     ):
@@ -158,6 +176,7 @@ def delete_category(
     category = db.get(CourseCategory, category_id)
     if category is None:
         raise HTTPException(status_code=404, detail="Category not found")
+    ensure_same_org(admin, category.organization_id, detail="Category not found")
     db.delete(category)
     log_action(
         db,
@@ -184,10 +203,15 @@ def set_course_taxonomy(
     course = db.get(Course, course_id)
     if course is None:
         raise HTTPException(status_code=404, detail="Course not found")
-    if body.category_id is not None and db.get(CourseCategory, body.category_id) is None:
-        raise HTTPException(status_code=404, detail="Category not found")
-    if body.cohort_id is not None and db.get(Cohort, body.cohort_id) is None:
-        raise HTTPException(status_code=404, detail="Cohort not found")
+    ensure_same_org(admin, course.organization_id, detail="Course not found")
+    if body.category_id is not None:
+        category = db.get(CourseCategory, body.category_id)
+        if category is None or category.organization_id != admin.organization_id:
+            raise HTTPException(status_code=404, detail="Category not found")
+    if body.cohort_id is not None:
+        cohort = db.get(Cohort, body.cohort_id)
+        if cohort is None or cohort.organization_id != admin.organization_id:
+            raise HTTPException(status_code=404, detail="Cohort not found")
     course.category_id = body.category_id
     course.cohort_id = body.cohort_id
     log_action(
@@ -226,7 +250,10 @@ def list_cohorts(
     db: DbSession,
     _admin: Annotated[User, Depends(require_admin)],
 ) -> list[CohortPublic]:
-    cohorts = db.scalars(select(Cohort).order_by(Cohort.name)).all()
+    # Fase C: cohorts de la propia organización
+    cohorts = db.scalars(
+        select(Cohort).where(Cohort.organization_id == _admin.organization_id).order_by(Cohort.name)
+    ).all()
     counts = _cohort_counts(db)
     out: list[CohortPublic] = []
     for c in cohorts:
@@ -243,11 +270,19 @@ def create_cohort(
     admin: Annotated[User, Depends(require_admin)],
     request: Request,
 ) -> CohortPublic:
-    if db.scalar(select(Cohort).where(Cohort.code == body.code)):
+    # Fase C: code único dentro de la organización
+    if db.scalar(
+        select(Cohort).where(
+            Cohort.code == body.code,
+            Cohort.organization_id == admin.organization_id,
+        )
+    ):
         raise HTTPException(status_code=409, detail="Cohort code already exists")
-    if body.category_id is not None and db.get(CourseCategory, body.category_id) is None:
-        raise HTTPException(status_code=404, detail="Category not found")
-    cohort = Cohort(**body.model_dump())
+    if body.category_id is not None:
+        category = db.get(CourseCategory, body.category_id)
+        if category is None or category.organization_id != admin.organization_id:
+            raise HTTPException(status_code=404, detail="Category not found")
+    cohort = Cohort(**body.model_dump(), organization_id=admin.organization_id)
     db.add(cohort)
     log_action(
         db,
@@ -271,6 +306,7 @@ def get_cohort(
     cohort = db.get(Cohort, cohort_id)
     if cohort is None:
         raise HTTPException(status_code=404, detail="Cohort not found")
+    ensure_same_org(_admin, cohort.organization_id, detail="Cohort not found")
     counts = _cohort_counts(db)
     detail = CohortDetail.model_validate(cohort)
     detail.member_count = counts.get(cohort.id, 0)
@@ -295,6 +331,7 @@ def delete_cohort(
     cohort = db.get(Cohort, cohort_id)
     if cohort is None:
         raise HTTPException(status_code=404, detail="Cohort not found")
+    ensure_same_org(admin, cohort.organization_id, detail="Cohort not found")
     db.delete(cohort)
     log_action(
         db,
@@ -318,6 +355,7 @@ def add_cohort_members(
     cohort = db.get(Cohort, cohort_id)
     if cohort is None:
         raise HTTPException(status_code=404, detail="Cohort not found")
+    ensure_same_org(admin, cohort.organization_id, detail="Cohort not found")
     ids = list(body.student_ids or [])
     if body.student_id is not None:
         ids.append(body.student_id)
@@ -329,6 +367,8 @@ def add_cohort_members(
         student = db.get(User, student_id)
         if student is None or student.role is not UserRole.student:
             raise HTTPException(status_code=404, detail=f"Student {student_id} not found")
+        # Fase C: no mezclar alumnos de otra organización
+        ensure_same_org(admin, student.organization_id, detail=f"Student {student_id} not found")
         exists = db.scalar(
             select(CohortMembership).where(
                 CohortMembership.cohort_id == cohort.id,
@@ -363,6 +403,10 @@ def remove_cohort_member(
     admin: Annotated[User, Depends(require_admin)],
     request: Request,
 ) -> None:
+    cohort = db.get(Cohort, cohort_id)
+    if cohort is None:
+        raise HTTPException(status_code=404, detail="Membership not found")
+    ensure_same_org(admin, cohort.organization_id, detail="Membership not found")
     membership = db.scalar(
         select(CohortMembership).where(
             CohortMembership.cohort_id == cohort_id,
@@ -396,7 +440,8 @@ def auto_enroll_course(
         return AutoEnrollResult(enrolled=0, skipped=0, reason="no_cohort")
 
     cohort = db.get(Cohort, course.cohort_id)
-    if cohort is None:
+    # Fase C: la cohorte debe pertenecer a la misma organización que el curso
+    if cohort is None or cohort.organization_id != course.organization_id:
         return AutoEnrollResult(enrolled=0, skipped=0, reason="no_cohort")
 
     member_ids = list(
@@ -490,12 +535,20 @@ def list_roles(
     db: DbSession,
     _admin: Annotated[User, Depends(require_admin)],
 ) -> list[CustomRolePublic]:
-    roles = db.scalars(select(CustomRole).order_by(CustomRole.name)).all()
+    # Fase C: roles (y sus conteos) de la propia organización
+    roles = db.scalars(
+        select(CustomRole)
+        .where(CustomRole.organization_id == _admin.organization_id)
+        .order_by(CustomRole.name)
+    ).all()
     counts: dict[int, int] = {
         int(k): int(v)
         for k, v in db.execute(
             select(User.custom_role_id, func.count())
-            .where(User.custom_role_id.is_not(None))
+            .where(
+                User.custom_role_id.is_not(None),
+                User.organization_id == _admin.organization_id,
+            )
             .group_by(User.custom_role_id)
         ).all()
         if k is not None
@@ -518,9 +571,15 @@ def create_role(
     invalid = [p for p in body.permissions if p not in KNOWN_PERMISSIONS]
     if invalid:
         raise HTTPException(status_code=422, detail=f"Unknown permissions: {invalid}")
-    if db.scalar(select(CustomRole).where(CustomRole.name == body.name)):
+    # Fase C: nombre de rol único dentro de la organización
+    if db.scalar(
+        select(CustomRole).where(
+            CustomRole.name == body.name,
+            CustomRole.organization_id == admin.organization_id,
+        )
+    ):
         raise HTTPException(status_code=409, detail="Role name already exists")
-    role = CustomRole(**body.model_dump())
+    role = CustomRole(**body.model_dump(), organization_id=admin.organization_id)
     db.add(role)
     log_action(
         db,
@@ -546,6 +605,7 @@ def update_role(
     role = db.get(CustomRole, role_id)
     if role is None:
         raise HTTPException(status_code=404, detail="Role not found")
+    ensure_same_org(admin, role.organization_id, detail="Role not found")
     data = body.model_dump(exclude_unset=True)
     perms = data.get("permissions")
     if perms is not None:
@@ -556,7 +616,11 @@ def update_role(
         data.get("name") is not None
         and data["name"] != role.name
         and db.scalar(
-            select(CustomRole).where(CustomRole.name == data["name"], CustomRole.id != role.id)
+            select(CustomRole).where(
+                CustomRole.name == data["name"],
+                CustomRole.organization_id == admin.organization_id,
+                CustomRole.id != role.id,
+            )
         )
     ):
         raise HTTPException(status_code=409, detail="Role name already exists")
@@ -586,6 +650,7 @@ def delete_role(
     role = db.get(CustomRole, role_id)
     if role is None:
         raise HTTPException(status_code=404, detail="Role not found")
+    ensure_same_org(admin, role.organization_id, detail="Role not found")
     db.delete(role)
     log_action(
         db,
@@ -609,8 +674,11 @@ def assign_custom_role(
     user = db.get(User, user_id)
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
-    if body.custom_role_id is not None and db.get(CustomRole, body.custom_role_id) is None:
-        raise HTTPException(status_code=404, detail="Role not found")
+    ensure_same_org(admin, user.organization_id, detail="User not found")
+    if body.custom_role_id is not None:
+        role = db.get(CustomRole, body.custom_role_id)
+        if role is None or role.organization_id != admin.organization_id:
+            raise HTTPException(status_code=404, detail="Role not found")
     user.custom_role_id = body.custom_role_id
     log_action(
         db,
@@ -648,9 +716,15 @@ def active_sessions(
     _admin: Annotated[User, Depends(require_admin)],
 ) -> list[ActiveSessionPublic]:
     now = datetime.now(UTC)
+    # Fase C: solo sesiones de usuarios de la propia organización
     rows = db.scalars(
         select(RefreshToken)
-        .where(RefreshToken.revoked_at.is_(None), RefreshToken.expires_at > now)
+        .join(User, User.id == RefreshToken.user_id)
+        .where(
+            RefreshToken.revoked_at.is_(None),
+            RefreshToken.expires_at > now,
+            User.organization_id == _admin.organization_id,
+        )
         .order_by(RefreshToken.created_at.desc())
     ).all()
     return [
@@ -676,6 +750,7 @@ def revoke_user_sessions(
     user = db.get(User, body.user_id)
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
+    ensure_same_org(admin, user.organization_id, detail="User not found")
     rows = db.scalars(
         select(RefreshToken).where(
             RefreshToken.user_id == user.id,
@@ -708,6 +783,7 @@ def unlock_user(
     user = db.get(User, user_id)
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
+    ensure_same_org(admin, user.organization_id, detail="User not found")
     identifiers = [i for i in (user.email, user.username, user.name) if i]
     stmt = delete(AuditLog).where(
         AuditLog.action == "auth.login_failed",

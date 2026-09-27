@@ -35,7 +35,7 @@ from app.schemas.admin import (
     UserStatusUpdate,
 )
 from app.schemas.dashboard import AdminDashboardStats, ObserverResponse, ObserverSubmissionRow
-from app.security.policies import DbSession, require_admin
+from app.security.policies import DbSession, ensure_same_org, require_admin
 from app.services.audit import log_action
 
 router = APIRouter(tags=["admin"])
@@ -59,6 +59,8 @@ def list_users(
     limit: int = Query(default=200, ge=1, le=500),
 ) -> list[AdminUserPublic]:
     stmt = select(User).order_by(User.id)
+    # Fase C: el admin solo ve usuarios de SU organización
+    stmt = stmt.where(User.organization_id == _admin.organization_id)
     if role is not None:
         stmt = stmt.where(User.role == role)
     if q:
@@ -142,6 +144,7 @@ def update_user(
     user = db.get(User, user_id)
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
+    ensure_same_org(admin, user.organization_id, detail="User not found")
     if body.email is not None and body.email != user.email:
         if db.scalar(select(User).where(User.email == body.email, User.id != user.id)):
             raise HTTPException(status_code=409, detail="Email already exists")
@@ -193,6 +196,7 @@ def reset_staff_password(
     user = db.get(User, user_id)
     if user is None or user.role is UserRole.student:
         raise HTTPException(status_code=404, detail="Staff user not found")
+    ensure_same_org(admin, user.organization_id, detail="Staff user not found")
     password = body.password or _generate_password()
     user.password_hash = hash_secret(password)
     user.must_change_credentials = True
@@ -220,6 +224,7 @@ def set_user_status(
     user = db.get(User, user_id)
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
+    ensure_same_org(admin, user.organization_id, detail="User not found")
     user.is_active = body.is_active
     log_action(
         db,
@@ -246,6 +251,7 @@ def reset_pin(
     user = db.get(User, user_id)
     if user is None or user.role is not UserRole.student:
         raise HTTPException(status_code=404, detail="Student not found")
+    ensure_same_org(admin, user.organization_id, detail="Student not found")
     pin = body.pin or _generate_pin()
     user.pin_hash = hash_secret(pin)
     # El PIN que genera el admin es directamente el definitivo (students no cambian su PIN)
@@ -275,6 +281,7 @@ def import_students_csv(
     course = db.get(Course, course_id)
     if course is None:
         raise HTTPException(status_code=404, detail="Course not found")
+    ensure_same_org(admin, course.organization_id, detail="Course not found")
 
     reader = csv.reader(io.StringIO(body.csv_text))
     created = 0
@@ -347,6 +354,10 @@ def list_audit_logs(
     limit: int = Query(default=100, ge=1, le=500),
 ) -> list[AuditLogPublic]:
     stmt = select(AuditLog).order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
+    # Fase C: solo logs de actores de la propia organización
+    stmt = stmt.where(
+        AuditLog.actor_id.in_(select(User.id).where(User.organization_id == _admin.organization_id))
+    )
     if action:
         stmt = stmt.where(AuditLog.action == action)
     if course_id is not None:
@@ -374,6 +385,7 @@ def course_metrics(
     course = db.get(Course, course_id)
     if course is None:
         raise HTTPException(status_code=404, detail="Course not found")
+    ensure_same_org(_admin, course.organization_id, detail="Course not found")
     from app.models import Submission, SubmissionStatus
 
     enrolled = int(
@@ -414,33 +426,73 @@ def admin_dashboard(
     db: DbSession,
     _admin: Annotated[User, Depends(require_admin)],
 ) -> AdminDashboardStats:
-    courses_total = int(db.scalar(select(func.count()).select_from(Course)) or 0)
+    org_id = _admin.organization_id
+    org_courses = select(Course.id).where(Course.organization_id == org_id)
+    org_actor_ids = select(User.id).where(User.organization_id == org_id)
+    courses_total = int(
+        db.scalar(select(func.count()).select_from(Course).where(Course.organization_id == org_id))
+        or 0
+    )
     courses_active = int(
         db.scalar(
-            select(func.count()).select_from(Course).where(Course.status == CourseStatus.active)
+            select(func.count())
+            .select_from(Course)
+            .where(Course.organization_id == org_id, Course.status == CourseStatus.active)
         )
         or 0
     )
-    users_total = int(db.scalar(select(func.count()).select_from(User)) or 0)
+    users_total = int(
+        db.scalar(select(func.count()).select_from(User).where(User.organization_id == org_id)) or 0
+    )
     students_total = int(
-        db.scalar(select(func.count()).select_from(User).where(User.role == UserRole.student)) or 0
+        db.scalar(
+            select(func.count())
+            .select_from(User)
+            .where(User.organization_id == org_id, User.role == UserRole.student)
+        )
+        or 0
     )
     teachers_total = int(
-        db.scalar(select(func.count()).select_from(User).where(User.role == UserRole.teacher)) or 0
+        db.scalar(
+            select(func.count())
+            .select_from(User)
+            .where(User.organization_id == org_id, User.role == UserRole.teacher)
+        )
+        or 0
     )
-    enrollments_total = int(db.scalar(select(func.count()).select_from(Enrollment)) or 0)
-    submissions_total = int(db.scalar(select(func.count()).select_from(Submission)) or 0)
+    enrollments_total = int(
+        db.scalar(
+            select(func.count())
+            .select_from(Enrollment)
+            .where(Enrollment.course_id.in_(org_courses))
+        )
+        or 0
+    )
+    submissions_total = int(
+        db.scalar(
+            select(func.count())
+            .select_from(Submission)
+            .where(Submission.course_id.in_(org_courses))
+        )
+        or 0
+    )
     submissions_pending = int(
         db.scalar(
             select(func.count())
             .select_from(Submission)
-            .where(Submission.status == SubmissionStatus.submitted)
+            .where(
+                Submission.course_id.in_(org_courses),
+                Submission.status == SubmissionStatus.submitted,
+            )
         )
         or 0
     )
 
     recent_audit_rows = db.scalars(
-        select(AuditLog).order_by(AuditLog.created_at.desc(), AuditLog.id.desc()).limit(8)
+        select(AuditLog)
+        .where(AuditLog.actor_id.in_(org_actor_ids))
+        .order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
+        .limit(8)
     ).all()
     recent_audit: list[dict[str, Any]] = []
     for row in recent_audit_rows:
@@ -457,7 +509,10 @@ def admin_dashboard(
 
     recent_subs = db.scalars(
         select(Submission)
-        .where(Submission.status.in_([SubmissionStatus.submitted, SubmissionStatus.reviewed]))
+        .where(
+            Submission.course_id.in_(org_courses),
+            Submission.status.in_([SubmissionStatus.submitted, SubmissionStatus.reviewed]),
+        )
         .order_by(Submission.updated_at.desc())
         .limit(8)
     ).all()
@@ -499,6 +554,12 @@ def observer_submissions(
 ) -> ObserverResponse:
     """Vista global del admin: todas las entregas, archivos y notas."""
     stmt = select(Submission).order_by(Submission.updated_at.desc())
+    # Fase C: solo entregas de cursos de la propia organización
+    stmt = stmt.where(
+        Submission.course_id.in_(
+            select(Course.id).where(Course.organization_id == _admin.organization_id)
+        )
+    )
     if course_id is not None:
         stmt = stmt.where(Submission.course_id == course_id)
     if status is not None:
@@ -564,6 +625,9 @@ def observer_evaluations(
         if course_id is not None and sub.course_id != course_id:
             continue
         course = db.get(Course, sub.course_id)
+        # Fase C: solo evaluaciones de cursos de la propia organización
+        if course is None or course.organization_id != _admin.organization_id:
+            continue
         out.append(
             {
                 "id": ev.id,

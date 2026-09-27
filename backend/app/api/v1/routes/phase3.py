@@ -36,6 +36,7 @@ from app.security.policies import (
     CurrentUser,
     DbSession,
     can_read_submission,
+    ensure_same_org,
     require_admin,
     require_staff_of_course,
 )
@@ -56,8 +57,16 @@ def clone_course(
     source = db.get(Course, course_id)
     if source is None:
         raise HTTPException(status_code=404, detail="Course not found")
+    # Fase C: solo clonar cursos de la propia organización
+    ensure_same_org(_admin, source.organization_id, detail="Course not found")
     code = body.code.strip().upper()
-    if db.scalar(select(Course).where(Course.code == code)):
+    # Fase C: código único dentro de la organización
+    if db.scalar(
+        select(Course).where(
+            Course.code == code,
+            Course.organization_id == _admin.organization_id,
+        )
+    ):
         raise HTTPException(status_code=409, detail="Course code already exists")
 
     clone = Course(
@@ -67,7 +76,7 @@ def clone_course(
         status=CourseStatus.active,
         layout_rows=source.layout_rows,
         layout_cols=source.layout_cols,
-        organization_id=source.organization_id,
+        organization_id=_admin.organization_id,
         settings=dict(source.settings),
     )
     db.add(clone)
@@ -357,6 +366,8 @@ def rgpd_erase_user_admin(
     target = db.get(User, user_id)
     if target is None:
         raise HTTPException(status_code=404, detail="User not found")
+    # Fase C: no anonimizar usuarios de otra organización
+    ensure_same_org(admin, target.organization_id, detail="User not found")
     if target.id == admin.id:
         raise HTTPException(status_code=400, detail="Cannot erase yourself")
     target.name = f"[ELIMINADO {target.id}]"
